@@ -1,6 +1,6 @@
 {
   "name": "onyx",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A modern desktop image editor",
   "homepage": "https://github.com/unsafezer0/Onyx",
   "author": {
@@ -35,24 +35,32 @@
     "directories": {
       "output": "dist-electron"
     },
+    "extraResources": [
+      {
+        "from": "public/icon.png",
+        "to": "icon.png"
+      }
+    ],
+    "icon": "public/icon.png",
     "linux": {
       "target": [
         "AppImage",
         "deb"
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.png",
+      "category": "Graphics"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "public/icon.png"
+      "icon": "public/icon.ico"
     },
     "mac": {
       "target": [
         "dmg"
       ],
-      "icon": "public/icon.icns"
+      "icon": "public/icon.png"
     }
   },
   "dependencies": {
