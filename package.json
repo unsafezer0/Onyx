@@ -1,6 +1,6 @@
 {
   "name": "onyx",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "A modern desktop image editor",
   "homepage": "https://github.com/unsafezer0/Onyx",
   "author": {
@@ -21,6 +21,7 @@
   "build": {
     "appId": "com.unsafezer0.onyx",
     "productName": "Onyx",
+    "executableName": "onyx",
     "publish": {
       "provider": "github",
       "owner": "unsafezer0",

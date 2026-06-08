@@ -9,29 +9,8 @@ permissions:
   contents: write
 
 jobs:
-  create-release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    outputs:
-      release_id: ${{ steps.create_release.outputs.id }}
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Create GitHub Release
-        id: create_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: Onyx ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-
   build:
     name: Build (${{ matrix.os }})
-    needs: create-release
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -57,7 +36,21 @@ jobs:
       - name: Build app
         run: bun run build
 
-      - name: Package and publish Electron app
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bun run electron:build --publish always
+      - name: Package Electron app
+        run: bun run electron:build
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Onyx ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            dist-electron/*.AppImage
+            dist-electron/*.deb
+            dist-electron/*.exe
+            dist-electron/*.dmg
+            dist-electron/*.zip
+            dist-electron/*.yml
