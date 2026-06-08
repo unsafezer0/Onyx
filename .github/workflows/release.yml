@@ -37,7 +37,7 @@ jobs:
         run: bun run build
 
       - name: Package Electron app
-        run: bun run electron:build
+        run: bun run electron:build --publish never
 
       - name: Upload release assets
         uses: softprops/action-gh-release@v2
