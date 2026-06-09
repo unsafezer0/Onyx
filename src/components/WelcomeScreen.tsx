@@ -3,34 +3,7 @@ import { useEditor } from "../context/EditorContext";
 import { ImageSquare, UploadSimple } from "@phosphor-icons/react";
 
 export default function WelcomeScreen() {
-  const { loadImage } = useEditor();
-
-  const handleOpen = useCallback(async () => {
-    try {
-      console.log("handleOpen called, electronAPI:", !!window.electronAPI);
-      const result = await window.electronAPI?.openFile();
-      console.log("openFile result:", result ? "success" : "null");
-      if (!result) return;
-
-      const img = new Image();
-      img.onload = () => {
-        console.log("Image loaded successfully:", img.naturalWidth, "x", img.naturalHeight);
-        loadImage({
-          dataUrl: result.dataUrl,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          filePath: result.filePath,
-          fileName: result.fileName,
-        });
-      };
-      img.onerror = (e) => {
-        console.error("Image load failed:", e);
-      };
-      img.src = result.dataUrl;
-    } catch (e) {
-      console.error("Error in handleOpen:", e);
-    }
-  }, [loadImage]);
+  const { loadImage, openImage } = useEditor();
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -38,10 +11,8 @@ export default function WelcomeScreen() {
       e.stopPropagation();
 
       const file = e.dataTransfer.files[0];
-      console.log("File dropped:", file?.name, "type:", file?.type);
       if (!file) return;
       if (!file.type.startsWith("image/") && !file.name.match(/\.(png|jpe?g|webp|bmp|gif)$/i)) {
-        console.warn("Invalid file type:", file.type);
         return;
       }
 
@@ -50,7 +21,6 @@ export default function WelcomeScreen() {
         const dataUrl = reader.result as string;
         const img = new Image();
         img.onload = () => {
-          console.log("Dropped image loaded:", img.naturalWidth, "x", img.naturalHeight);
           loadImage({
             dataUrl,
             width: img.naturalWidth,
@@ -59,10 +29,8 @@ export default function WelcomeScreen() {
             fileName: file.name,
           });
         };
-        img.onerror = (err) => console.error("Dropped image load error:", err);
         img.src = dataUrl;
       };
-      reader.onerror = (err) => console.error("FileReader error:", err);
       reader.readAsDataURL(file);
     },
     [loadImage],
@@ -97,7 +65,7 @@ export default function WelcomeScreen() {
         </div>
 
         <button
-          onClick={handleOpen}
+          onClick={openImage}
           className="inline-flex items-center gap-2.5 rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-200 hover:shadow-xl hover:shadow-primary/30 hover:brightness-110 active:scale-[0.98]"
         >
           <UploadSimple size={18} weight="bold" />

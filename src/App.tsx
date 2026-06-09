@@ -1,8 +1,8 @@
 import { useEffect, useCallback } from "react";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import { EditorProvider, useEditor } from "./context/EditorContext";
+import { formatFromExtension } from "./utils/renderUtils";
 import Header from "./components/Header";
-
 import WelcomeScreen from "./components/WelcomeScreen";
 import Canvas from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
@@ -50,69 +50,52 @@ function EditorLayout() {
 }
 
 function MenuEventHandler() {
-  const { dispatch, undo, redo, state } = useEditor();
+  const { dispatch, undo, redo, state, openImage, canvasActionsRef } = useEditor();
 
-  const handleOpen = useCallback(async () => {
-    const result = await window.electronAPI?.openFile();
+  const handleSaveAs = useCallback(async () => {
+    const actions = canvasActionsRef.current;
+    if (!actions) return;
+
+    // Step 1: Show dialog to get the chosen path
+    const result = await window.electronAPI?.saveFileAs();
     if (!result) return;
-    const img = new Image();
-    img.onload = () => {
-      dispatch({
-        type: "LOAD_IMAGE",
-        payload: {
-          dataUrl: result.dataUrl,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          filePath: result.filePath,
-          fileName: result.fileName,
-        },
-      });
-    };
-    img.src = result.dataUrl;
-  }, [dispatch]);
+
+    // Step 2: Determine format from chosen extension
+    const ext = result.filePath.split(".").pop()?.toLowerCase() || "png";
+    const { mime, quality } = formatFromExtension(ext);
+
+    // Step 3: Export in the correct format
+    const dataUrl = actions.exportImage(mime, quality);
+    if (!dataUrl) return;
+
+    // Step 4: Write the file
+    await window.electronAPI?.saveFile(dataUrl, result.filePath);
+    dispatch({ type: "MARK_SAVED" });
+  }, [dispatch, canvasActionsRef]);
 
   const handleSave = useCallback(async () => {
-    const exportFn = (window as any).__oynx_export;
-    if (!exportFn || !state.image) return;
+    const actions = canvasActionsRef.current;
+    if (!actions || !state.image) return;
+
     if (state.image.filePath) {
-      const ext = state.image.filePath.split('.').pop()?.toLowerCase() || 'png';
-      const format = ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' : ext === 'webp' ? 'image/webp' : 'image/png';
-      const dataUrl = exportFn(format, 1.0);
+      const ext = state.image.filePath.split(".").pop()?.toLowerCase() || "png";
+      const { mime, quality } = formatFromExtension(ext);
+      const dataUrl = actions.exportImage(mime, quality);
       if (!dataUrl) return;
 
       await window.electronAPI?.saveFile(dataUrl, state.image.filePath);
       dispatch({ type: "MARK_SAVED" });
     } else {
-      const dataUrl = exportFn("image/png", 1.0);
-      if (!dataUrl) return;
-      const result = await window.electronAPI?.saveFileAs(dataUrl);
-      if (result) dispatch({ type: "MARK_SAVED" });
+      // No existing path — fall through to save-as
+      await handleSaveAs();
     }
-  }, [state.image, dispatch]);
-
-  const handleSaveAs = useCallback(async () => {
-    const exportFn = (window as any).__oynx_export;
-    if (!exportFn) return;
-    
-    // We don't know the format until they pick it in the dialog!
-    // We should let electron handle it or we can just send PNG and let electron convert it?
-    // Wait, IPC doesn't convert it! We need to change IPC so that it tells us the format!
-    // Since we can't easily change the synchronous flow here without refactoring IPC,
-    // let's pass a high quality PNG to the saveFileAs and let electron write it.
-    // BUT wait! If they pick JPEG, they get a PNG.
-    
-    // As a workaround, we will just export PNG. PNG is lossless, so no pixels are lost.
-    const dataUrl = exportFn("image/png", 1.0);
-    if (!dataUrl) return;
-    const result = await window.electronAPI?.saveFileAs(dataUrl);
-    if (result) dispatch({ type: "MARK_SAVED" });
-  }, [dispatch]);
+  }, [state.image, dispatch, canvasActionsRef, handleSaveAs]);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onMenuEvent((action: string) => {
       switch (action) {
         case "open":
-          handleOpen();
+          openImage();
           break;
         case "save":
           handleSave();
@@ -133,7 +116,7 @@ function MenuEventHandler() {
     return () => {
       cleanup?.();
     };
-  }, [handleOpen, handleSave, handleSaveAs, undo, redo]);
+  }, [openImage, handleSave, handleSaveAs, undo, redo]);
 
   return null;
 }

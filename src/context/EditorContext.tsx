@@ -1,4 +1,6 @@
-import { createContext, useContext, useReducer, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useCallback, useRef, useState, type ReactNode } from "react";
+
+
 
 export interface LayerBase {
   id: string;
@@ -39,6 +41,8 @@ export interface ImageLayer extends LayerBase {
 
 export type Layer = TextLayer | ImageLayer;
 
+
+
 export interface FilterState {
   brightness: number;
   contrast: number;
@@ -68,6 +72,8 @@ export interface ImageInfo {
   filePath: string | null;
   fileName: string;
 }
+
+
 
 export interface EditorState {
   image: ImageInfo | null;
@@ -117,6 +123,8 @@ const initialState: EditorState = {
   isDirty: false,
 };
 
+
+
 type EditorAction =
   | { type: "LOAD_IMAGE"; payload: ImageInfo }
   | { type: "REPLACE_BACKGROUND"; payload: ImageInfo }
@@ -139,6 +147,8 @@ type EditorAction =
   | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "MARK_SAVED" }
   | { type: "RESTORE_STATE"; payload: EditorState };
+
+
 
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
@@ -302,10 +312,21 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   }
 }
 
+
+
+export interface CanvasActions {
+  exportImage: (format?: string, quality?: number) => string | null;
+  applyCrop: () => void;
+  applyLayerCrop: () => void;
+}
+
+
+
 interface EditorContextValue {
   state: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   loadImage: (info: ImageInfo) => void;
+  openImage: () => Promise<void>;
   addText: (overrides?: Partial<TextLayer>) => void;
   addImageOverlay: (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => void;
   updateLayer: (id: string, changes: Partial<Layer>) => void;
@@ -322,47 +343,84 @@ interface EditorContextValue {
   startLayerCrop: () => void;
   setLayerCrop: (changes: Partial<CropState>) => void;
   cancelLayerCrop: () => void;
+  /** Snapshot current state for undo. Call before destructive actions. */
+  snapshotForUndo: () => void;
   undo: () => void;
   redo: () => void;
   canUndo: boolean;
   canRedo: boolean;
+  /** Ref-based registry for canvas export/crop functions. */
+  canvasActionsRef: React.MutableRefObject<CanvasActions | null>;
 }
 
 const EditorContext = createContext<EditorContextValue | null>(null);
+
+
 
 let idCounter = 0;
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${++idCounter}`;
 }
 
-const maxHistory = 30;
+
+
+const MAX_HISTORY = 30;
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(editorReducer, initialState);
 
+  // History stored in a ref; canUndo/canRedo are explicit state so React re-renders.
+  const historyRef = useRef<{ past: EditorState[]; future: EditorState[] }>({
+    past: [],
+    future: [],
+  });
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+
+  // Canvas actions registry — Canvas registers its functions here.
+  const canvasActionsRef = useRef<CanvasActions | null>(null);
+
+  const syncHistoryFlags = useCallback(() => {
+    setCanUndo(historyRef.current.past.length > 0);
+    setCanRedo(historyRef.current.future.length > 0);
+  }, []);
+
+  const snapshotForUndo = useCallback(() => {
+    const h = historyRef.current;
+    h.past = [...h.past.slice(-(MAX_HISTORY - 1)), state];
+    h.future = [];
+    syncHistoryFlags();
+  }, [state, syncHistoryFlags]);
+
   const loadImage = useCallback(
     (info: ImageInfo) => {
-      historyStorage.past = [];
-      historyStorage.future = [];
+      historyRef.current = { past: [], future: [] };
+      syncHistoryFlags();
       dispatch({ type: "LOAD_IMAGE", payload: info });
     },
-    [],
+    [syncHistoryFlags],
   );
 
-  const pushHistory = useCallback(
-    (currentState: EditorState) => {
-      historyStorage.past = [
-        ...historyStorage.past.slice(-(maxHistory - 1)),
-        currentState,
-      ];
-      historyStorage.future = [];
-    },
-    [],
-  );
+  /** DRY: single implementation for opening a file via Electron IPC. */
+  const openImage = useCallback(async () => {
+    const result = await window.electronAPI?.openFile();
+    if (!result) return;
+    const img = new Image();
+    img.onload = () => {
+      loadImage({
+        dataUrl: result.dataUrl,
+        width: img.naturalWidth,
+        height: img.naturalHeight,
+        filePath: result.filePath,
+        fileName: result.fileName,
+      });
+    };
+    img.src = result.dataUrl;
+  }, [loadImage]);
 
   const addText = useCallback(
     (overrides?: Partial<TextLayer>) => {
-      pushHistory(state);
+      snapshotForUndo();
       const newText: TextLayer = {
         id: generateId("text"),
         type: "text",
@@ -384,12 +442,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       };
       dispatch({ type: "ADD_LAYER", payload: newText });
     },
-    [state, pushHistory],
+    [state, snapshotForUndo],
   );
 
   const addImageOverlay = useCallback(
     (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => {
-      pushHistory(state);
+      snapshotForUndo();
       const newImage: ImageLayer = {
         id: generateId("img"),
         type: "image",
@@ -405,7 +463,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       };
       dispatch({ type: "ADD_LAYER", payload: newImage });
     },
-    [state, pushHistory],
+    [state, snapshotForUndo],
   );
 
   const updateLayer = useCallback(
@@ -417,10 +475,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const removeLayer = useCallback(
     (id: string) => {
-      pushHistory(state);
+      snapshotForUndo();
       dispatch({ type: "REMOVE_LAYER", payload: id });
     },
-    [state, pushHistory],
+    [snapshotForUndo],
   );
 
   const selectLayer = useCallback(
@@ -434,9 +492,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
 
   const resetFilters = useCallback(() => {
-    pushHistory(state);
+    snapshotForUndo();
     dispatch({ type: "RESET_FILTERS" });
-  }, [state, pushHistory]);
+  }, [snapshotForUndo]);
 
   const setTool = useCallback(
     (t: Tool) => dispatch({ type: "SET_TOOL", payload: t }),
@@ -454,9 +512,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
 
   const startCrop = useCallback(() => {
-    pushHistory(state);
+    snapshotForUndo();
     dispatch({ type: "START_CROP" });
-  }, [state, pushHistory]);
+  }, [snapshotForUndo]);
 
   const applyCrop = useCallback(
     (dataUrl: string, width: number, height: number) =>
@@ -467,9 +525,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const cancelCrop = useCallback(() => dispatch({ type: "CANCEL_CROP" }), []);
 
   const startLayerCrop = useCallback(() => {
-    pushHistory(state);
+    snapshotForUndo();
     dispatch({ type: "START_LAYER_CROP" });
-  }, [state, pushHistory]);
+  }, [snapshotForUndo]);
 
   const setLayerCrop = useCallback(
     (changes: Partial<CropState>) => dispatch({ type: "SET_LAYER_CROP", payload: changes }),
@@ -479,25 +537,30 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   const cancelLayerCrop = useCallback(() => dispatch({ type: "CANCEL_LAYER_CROP" }), []);
 
   const undo = useCallback(() => {
-    if (historyStorage.past.length === 0) return;
-    const prev = historyStorage.past[historyStorage.past.length - 1];
-    historyStorage.past = historyStorage.past.slice(0, -1);
-    historyStorage.future = [state, ...historyStorage.future];
+    const h = historyRef.current;
+    if (h.past.length === 0) return;
+    const prev = h.past[h.past.length - 1];
+    h.past = h.past.slice(0, -1);
+    h.future = [state, ...h.future];
+    syncHistoryFlags();
     dispatch({ type: "RESTORE_STATE", payload: prev });
-  }, [state]);
+  }, [state, syncHistoryFlags]);
 
   const redo = useCallback(() => {
-    if (historyStorage.future.length === 0) return;
-    const next = historyStorage.future[0];
-    historyStorage.future = historyStorage.future.slice(1);
-    historyStorage.past = [...historyStorage.past, state];
+    const h = historyRef.current;
+    if (h.future.length === 0) return;
+    const next = h.future[0];
+    h.future = h.future.slice(1);
+    h.past = [...h.past, state];
+    syncHistoryFlags();
     dispatch({ type: "RESTORE_STATE", payload: next });
-  }, [state]);
+  }, [state, syncHistoryFlags]);
 
   const value: EditorContextValue = {
     state,
     dispatch,
     loadImage,
+    openImage,
     addText,
     addImageOverlay,
     updateLayer,
@@ -514,10 +577,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     startLayerCrop,
     setLayerCrop,
     cancelLayerCrop,
+    snapshotForUndo,
     undo,
     redo,
-    canUndo: historyStorage.past.length > 0,
-    canRedo: historyStorage.future.length > 0,
+    canUndo,
+    canRedo,
+    canvasActionsRef,
   };
 
   return (
@@ -525,16 +590,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
 }
 
-const historyStorage: { past: EditorState[]; future: EditorState[] } = {
-  past: [],
-  future: [],
-};
+
 
 export function useEditor(): EditorContextValue {
   const ctx = useContext(EditorContext);
   if (!ctx) throw new Error("useEditor must be used within EditorProvider");
   return ctx;
 }
+
+
 
 export function buildFilterString(filters: FilterState): string {
   if (

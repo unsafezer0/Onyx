@@ -14,8 +14,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openFile: () => ipcRenderer.invoke(ipcChannels.FILE_OPEN),
   saveFile: (dataUrl, filePath) =>
     ipcRenderer.invoke(ipcChannels.FILE_SAVE, { dataUrl, filePath }),
-  saveFileAs: (dataUrl) =>
-    ipcRenderer.invoke(ipcChannels.FILE_SAVE_AS, { dataUrl }),
+  /** Shows save-as dialog only, returns { filePath, fileName } or null. */
+  saveFileAs: () => ipcRenderer.invoke(ipcChannels.FILE_SAVE_AS),
 
   onMenuEvent: (callback) => {
     const listener = (_event, action) => callback(action);

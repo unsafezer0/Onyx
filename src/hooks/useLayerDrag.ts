@@ -2,7 +2,7 @@ import { useCallback, useRef, useState } from "react";
 import { useEditor } from "../context/EditorContext";
 
 export function useLayerDrag() {
-  const { state, updateLayer, selectLayer } = useEditor();
+  const { state, updateLayer, selectLayer, snapshotForUndo } = useEditor();
   const [resizing, setResizing] = useState<{ id: string; handle: string } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const dragStart = useRef<{ x: number; y: number; layerX: number; layerY: number; layerW: number; layerH: number } | null>(null);
@@ -89,6 +89,8 @@ export function useLayerDrag() {
         selectLayer(hit.id);
         const l = state.layers.find((layer) => layer.id === hit.id);
         if (l) {
+          // Snapshot for undo BEFORE the drag/resize begins
+          snapshotForUndo();
           dragStart.current = { x: canvasX, y: canvasY, layerX: l.x, layerY: l.y, layerW: l.type === "image" ? l.width : 0, layerH: l.type === "image" ? l.height : 0 };
           if (hit.handle) {
             setResizing({ id: hit.id, handle: hit.handle });
@@ -101,7 +103,7 @@ export function useLayerDrag() {
       selectLayer(null);
       return false;
     },
-    [hitTestLayer, selectLayer, state.layers],
+    [hitTestLayer, selectLayer, state.layers, snapshotForUndo],
   );
 
   const onPointerMove = useCallback(
@@ -111,7 +113,7 @@ export function useLayerDrag() {
       if (resizing) {
         const dx = canvasX - dragStart.current.x;
         const dy = canvasY - dragStart.current.y;
-        let { layerX, layerY, layerW, layerH } = dragStart.current;
+        const { layerX, layerY, layerW, layerH } = dragStart.current;
         let newX = layerX;
         let newY = layerY;
         let newW = layerW;

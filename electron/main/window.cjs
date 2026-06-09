@@ -26,8 +26,6 @@ function createWindow() {
     autoHideMenuBar: true,
   });
 
-  win.removeMenu();
-
   require("electron").session.defaultSession.webRequest.onHeadersReceived(
     (details, callback) => {
       callback({

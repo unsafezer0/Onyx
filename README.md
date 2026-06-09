@@ -2,7 +2,7 @@
 
 > A modern, sleek desktop image editor built with React, Vite, and Electron.
 
-[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/unsafezer0/onyx/releases)
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/unsafezer0/onyx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features

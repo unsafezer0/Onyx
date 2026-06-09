@@ -54,9 +54,8 @@ function registerFileIpc() {
     }
   });
 
-  ipcMain.handle(ipcChannels.FILE_SAVE_AS, async (_event, { dataUrl }) => {
+  ipcMain.handle(ipcChannels.FILE_SAVE_AS, async () => {
     const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-    if (!dataUrl) return null;
 
     const result = await dialog.showSaveDialog(win, {
       title: "Save Image As",
@@ -69,17 +68,10 @@ function registerFileIpc() {
 
     if (result.canceled || !result.filePath) return null;
 
-    try {
-      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
-      const buffer = Buffer.from(base64Data, "base64");
-      fs.writeFileSync(result.filePath, buffer);
-      return {
-        filePath: result.filePath,
-        fileName: path.basename(result.filePath),
-      };
-    } catch {
-      return null;
-    }
+    return {
+      filePath: result.filePath,
+      fileName: path.basename(result.filePath),
+    };
   });
 }
 

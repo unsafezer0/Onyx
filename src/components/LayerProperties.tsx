@@ -30,7 +30,7 @@ const availableFonts = [
 ];
 
 export default function LayerProperties() {
-  const { state, updateLayer, removeLayer, addImageOverlay, startLayerCrop, cancelLayerCrop, addText, selectLayer, startCrop, cancelCrop, dispatch } = useEditor();
+  const { state, updateLayer, removeLayer, addImageOverlay, startLayerCrop, cancelLayerCrop, addText, selectLayer, startCrop, cancelCrop, dispatch, canvasActionsRef } = useEditor();
   const selected = state.layers.find((l) => l.id === state.selectedLayerId);
   const [isFontOpen, setIsFontOpen] = useState(false);
   const fontRef = useRef<HTMLDivElement>(null);
@@ -111,6 +111,14 @@ export default function LayerProperties() {
       });
     };
     img.src = result.dataUrl;
+  };
+
+  const handleApplyLayerCrop = () => {
+    canvasActionsRef.current?.applyLayerCrop();
+  };
+
+  const handleApplyCrop = () => {
+    canvasActionsRef.current?.applyCrop();
   };
 
   return (
@@ -382,11 +390,7 @@ export default function LayerProperties() {
               {state.activeTool === "cropLayer" ? (
                 <div className="flex gap-2">
                   <button
-                    onClick={() => {
-                      if ((window as any).__oynx_applyLayerCrop) {
-                        (window as any).__oynx_applyLayerCrop();
-                      }
-                    }}
+                    onClick={handleApplyLayerCrop}
                     className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent bg-primary px-2 py-1.5 text-xs text-primary-foreground transition-all hover:brightness-110"
                   >
                     <Check size={14} />
@@ -502,10 +506,7 @@ export default function LayerProperties() {
           {state.activeTool === "crop" ? (
             <div className="flex gap-2">
               <button
-                onClick={() => {
-                  const cropFn = (window as any).__oynx_applyCrop;
-                  if (cropFn) cropFn();
-                }}
+                onClick={handleApplyCrop}
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-transparent bg-primary px-2 py-1.5 text-xs text-primary-foreground transition-all hover:brightness-110"
               >
                 <Check size={14} />

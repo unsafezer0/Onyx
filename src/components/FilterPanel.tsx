@@ -54,7 +54,7 @@ const PRESETS: Preset[] = [
 ];
 
 export default function FilterPanel() {
-  const { state, setFilters, resetFilters } = useEditor();
+  const { state, setFilters, resetFilters, snapshotForUndo } = useEditor();
 
   const isDefault = (key: keyof FilterState) =>
     state.filters[key] === defaultFilters[key];
@@ -120,6 +120,7 @@ export default function FilterPanel() {
               max={s.max}
               value={state.filters[s.key]}
               onChange={(e) => setFilters({ [s.key]: Number(e.target.value) })}
+              onPointerDown={snapshotForUndo}
               disabled={!state.image}
               className="w-full accent-primary cursor-pointer"
             />

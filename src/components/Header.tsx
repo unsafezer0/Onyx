@@ -1,5 +1,6 @@
 import { useEditor } from "../context/EditorContext";
 import { useCallback } from "react";
+import { formatFromExtension } from "../utils/renderUtils";
 import ThemeToggle from "./ThemeToggle";
 import {
   ArrowCounterClockwise,
@@ -14,60 +15,45 @@ import {
 } from "@phosphor-icons/react";
 
 export default function Header() {
-  const { state, undo, redo, canUndo, canRedo, setZoom, cancelCrop, dispatch } =
+  const { state, undo, redo, canUndo, canRedo, setZoom, cancelCrop, dispatch, openImage, canvasActionsRef } =
     useEditor();
 
-  const handleOpen = useCallback(async () => {
-    const result = await window.electronAPI?.openFile();
-    if (!result) return;
-    const img = new Image();
-    img.onload = () => {
-      dispatch({
-        type: "LOAD_IMAGE",
-        payload: {
-          dataUrl: result.dataUrl,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
-          filePath: result.filePath,
-          fileName: result.fileName,
-        },
-      });
-    };
-    img.src = result.dataUrl;
-  }, [dispatch]);
+  const handleExport = useCallback(async () => {
+    const actions = canvasActionsRef.current;
+    if (!actions) return;
 
-  const handleSave = useCallback(async () => {
-    const exportFn = (window as any).__oynx_export;
-    if (!exportFn || !state.image) return;
-    const dataUrl = exportFn("image/png", 1);
+    const result = await window.electronAPI?.saveFileAs();
+    if (!result) return;
+
+    const ext = result.filePath.split(".").pop()?.toLowerCase() || "png";
+    const { mime, quality } = formatFromExtension(ext);
+    const dataUrl = actions.exportImage(mime, quality);
     if (!dataUrl) return;
 
+    await window.electronAPI?.saveFile(dataUrl, result.filePath);
+    dispatch({ type: "MARK_SAVED" });
+  }, [dispatch, canvasActionsRef]);
+
+  const handleSave = useCallback(async () => {
+    const actions = canvasActionsRef.current;
+    if (!actions || !state.image) return;
+
     if (state.image.filePath) {
+      const ext = state.image.filePath.split(".").pop()?.toLowerCase() || "png";
+      const { mime, quality } = formatFromExtension(ext);
+      const dataUrl = actions.exportImage(mime, quality);
+      if (!dataUrl) return;
       await window.electronAPI?.saveFile(dataUrl, state.image.filePath);
       dispatch({ type: "MARK_SAVED" });
     } else {
-      const result = await window.electronAPI?.saveFileAs(dataUrl);
-      if (result) {
-        dispatch({ type: "MARK_SAVED" });
-      }
+      // Fall through to export (save-as)
+      await handleExport();
     }
-  }, [state.image, dispatch]);
-
-  const handleExport = useCallback(async () => {
-    const exportFn = (window as any).__oynx_export;
-    if (!exportFn) return;
-    const dataUrl = exportFn("image/png", 1);
-    if (!dataUrl) return;
-    const result = await window.electronAPI?.saveFileAs(dataUrl);
-    if (result) {
-      dispatch({ type: "MARK_SAVED" });
-    }
-  }, [dispatch]);
+  }, [state.image, dispatch, canvasActionsRef, handleExport]);
 
   const handleCropApply = useCallback(() => {
-    const cropFn = (window as any).__oynx_applyCrop;
-    if (cropFn) cropFn();
-  }, []);
+    canvasActionsRef.current?.applyCrop();
+  }, [canvasActionsRef]);
 
   return (
     <header className="relative z-10 flex w-full items-center justify-between border-b border-border bg-card/50 px-4 py-2 backdrop-blur-sm">
@@ -84,7 +70,7 @@ export default function Header() {
         <ToolbarButton
           icon={<FolderOpen size={15} />}
           label="Open (Ctrl+O)"
-          onClick={handleOpen}
+          onClick={openImage}
         />
         <ToolbarButton
           icon={<FloppyDisk size={15} />}

@@ -1,8 +1,13 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { useEditor, buildFilterString } from "../context/EditorContext";
+import { useEditor, buildFilterString, type ImageLayer } from "../context/EditorContext";
 import { useLayerDrag } from "../hooks/useLayerDrag";
 import { useCrop } from "../hooks/useCrop";
 import { useLayerCrop } from "../hooks/useLayerCrop";
+import {
+  getCheckerboardPattern,
+  renderLayers,
+  type OverlayImageCache,
+} from "../utils/renderUtils";
 
 export default function Canvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,6 +20,7 @@ export default function Canvas() {
     setTool,
     selectLayer,
     updateLayer,
+    canvasActionsRef,
   } = useEditor();
   const { onPointerDown, onPointerMove, onPointerUp, hitTestLayer } =
     useLayerDrag();
@@ -27,22 +33,41 @@ export default function Canvas() {
   const [imageEl, setImageEl] = useState<HTMLImageElement | null>(null);
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
-  const overlayImages = useRef<
-    Map<string, { url: string; img: HTMLImageElement }>
-  >(new Map());
+  const overlayImages = useRef<OverlayImageCache>(new Map());
+  const rafId = useRef<number>(0);
+
+  // Cache the resolved --primary CSS variable; re-read only on theme changes.
+  const primaryColorRef = useRef<string>("");
+  useEffect(() => {
+    const update = () => {
+      primaryColorRef.current =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--primary")
+          .trim() || "white";
+    };
+    update();
+    const observer = new MutationObserver(update);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   // Load image element when dataUrl changes
+  const imageDataUrl = state.image?.dataUrl ?? null;
   useEffect(() => {
-    if (!state.image) {
-      setImageEl(null);
-      return;
-    }
+    if (!imageDataUrl) return;
     const img = new Image();
     img.onload = () => setImageEl(img);
-    img.src = state.image.dataUrl;
-  }, [state.image?.dataUrl]);
+    img.src = imageDataUrl;
+    return () => { setImageEl(null); };
+  }, [imageDataUrl]);
 
-  // Render canvas
+  // Stable ref for triggering re-render from inside render callback
+  const scheduleRenderRef = useRef<() => void>(() => {});
+
+  // Render canvas (coalesced via rAF)
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
@@ -60,11 +85,9 @@ export default function Canvas() {
     canvas.style.height = `${ch}px`;
     ctx.scale(dpr, dpr);
 
-    // Clear
-    ctx.clearRect(0, 0, cw, ch);
-
-    // Draw checkerboard background
-    drawCheckerboard(ctx, cw, ch);
+    // Clear with cached checkerboard pattern
+    ctx.fillStyle = getCheckerboardPattern(ctx);
+    ctx.fillRect(0, 0, cw, ch);
 
     // Calculate centered position with zoom
     const imgW = state.image.width * state.zoom;
@@ -82,138 +105,135 @@ export default function Canvas() {
     ctx.drawImage(imageEl, 0, 0, state.image.width, state.image.height);
     ctx.filter = "none";
 
-    // Draw layers
-    for (const l of state.layers) {
-      if (!l.visible) continue;
-      ctx.save();
-      ctx.translate(l.x, l.y);
-      if (l.rotation) ctx.rotate((l.rotation * Math.PI) / 180);
-      ctx.globalAlpha = l.opacity;
-
-      if (l.type === "text") {
-        ctx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px "${l.fontFamily}", sans-serif`;
-        ctx.textBaseline = "top";
-
-        const metrics = ctx.measureText(l.text);
-        const textHeight = l.fontSize;
-
-        if (l.backgroundColor) {
-          ctx.fillStyle = l.backgroundColor;
-          ctx.fillRect(-4, -4, metrics.width + 8, textHeight + 8);
-        }
-
-        ctx.fillStyle = l.color;
-        ctx.fillText(l.text, 0, textHeight * 0.1);
-
-        if (l.strokeColor && l.strokeWidth) {
-          ctx.strokeStyle = l.strokeColor;
-          ctx.lineWidth = l.strokeWidth;
-          ctx.strokeText(l.text, 0, textHeight * 0.1);
-        }
-
-        // Draw selection outline
-        if (state.selectedLayerId === l.id) {
-          const primaryColor =
-            getComputedStyle(document.documentElement)
-              .getPropertyValue("--primary")
-              .trim() || "white";
-          ctx.strokeStyle = primaryColor;
-          ctx.lineWidth = 1.5 / state.zoom;
-          ctx.setLineDash([4 / state.zoom, 4 / state.zoom]);
-          ctx.strokeRect(
-            -4 / state.zoom,
-            -4 / state.zoom,
-            metrics.width + 8 / state.zoom,
-            textHeight + 8 / state.zoom,
-          );
-          ctx.setLineDash([]);
-        }
-      } else if (l.type === "image") {
-        let cached = overlayImages.current.get(l.id);
-        if (!cached || cached.url !== l.dataUrl) {
-          const img = new Image();
-          img.src = l.dataUrl;
-          img.onload = () => render();
-          cached = { url: l.dataUrl, img };
-          overlayImages.current.set(l.id, cached);
-        }
-
-        if (cached.img.complete) {
-          const cx = (l as any).cropX ?? 0;
-          const cy = (l as any).cropY ?? 0;
-          const cw = (l as any).cropWidth ?? cached.img.naturalWidth;
-          const ch = (l as any).cropHeight ?? cached.img.naturalHeight;
-          const radius = (l as any).borderRadius || 0;
-
-          if (radius > 0) {
-            ctx.save();
-            ctx.beginPath();
-            ctx.roundRect(0, 0, l.width, l.height, radius);
-            ctx.clip();
-            ctx.drawImage(cached.img, cx, cy, cw, ch, 0, 0, l.width, l.height);
-            ctx.restore();
-          } else {
-            ctx.drawImage(cached.img, cx, cy, cw, ch, 0, 0, l.width, l.height);
-          }
-        }
-
-        if (state.selectedLayerId === l.id && state.activeTool === "select") {
-          const primaryColor =
-            getComputedStyle(document.documentElement)
-              .getPropertyValue("--primary")
-              .trim() || "white";
-          ctx.strokeStyle = `hsl(${primaryColor})`;
-          ctx.lineWidth = 2 / state.zoom;
-          ctx.setLineDash([5 / state.zoom, 5 / state.zoom]);
-          ctx.strokeRect(0, 0, l.width, l.height);
-          ctx.setLineDash([]);
-
-          if (l.type === "image") {
-            const hs = 8 / state.zoom;
-            ctx.fillStyle = `hsl(${primaryColor})`;
-            ctx.fillRect(-hs / 2, -hs / 2, hs, hs);
-            ctx.fillRect(l.width / 2 - hs / 2, -hs / 2, hs, hs);
-            ctx.fillRect(l.width - hs / 2, -hs / 2, hs, hs);
-            ctx.fillRect(-hs / 2, l.height / 2 - hs / 2, hs, hs);
-            ctx.fillRect(l.width - hs / 2, l.height / 2 - hs / 2, hs, hs);
-            ctx.fillRect(-hs / 2, l.height - hs / 2, hs, hs);
-            ctx.fillRect(l.width / 2 - hs / 2, l.height - hs / 2, hs, hs);
-            ctx.fillRect(l.width - hs / 2, l.height - hs / 2, hs, hs);
-          }
-        }
-      }
-
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    }
+    // Draw layers using shared utility
+    const showSelection = state.activeTool === "select" || state.activeTool === "text";
+    renderLayers(ctx, state.layers, overlayImages.current, {
+      selectedLayerId: showSelection ? state.selectedLayerId : null,
+      zoom: state.zoom,
+      primaryColor: primaryColorRef.current,
+      onImageLoad: () => scheduleRenderRef.current(),
+    });
 
     // Draw crop overlay
     if (state.crop.active && state.activeTool === "crop") {
-      drawCropOverlay(ctx, state.image.width, state.image.height, state.crop);
+      drawCropOverlay(ctx, state.image.width, state.image.height, state.crop, primaryColorRef.current);
     }
 
     // Draw layer crop overlay
     if (state.layerCrop.active && state.activeTool === "cropLayer") {
-      drawLayerCropOverlay(ctx, state.layerCrop);
+      drawLayerCropOverlay(ctx, state.layerCrop, primaryColorRef.current);
     }
 
     ctx.restore();
   }, [imageEl, state]);
 
-  useEffect(() => {
-    render();
+  const scheduleRender = useCallback(() => {
+    cancelAnimationFrame(rafId.current);
+    rafId.current = requestAnimationFrame(render);
   }, [render]);
+  useEffect(() => { scheduleRenderRef.current = scheduleRender; }, [scheduleRender]);
+
+  useEffect(() => {
+    scheduleRender();
+    return () => cancelAnimationFrame(rafId.current);
+  }, [scheduleRender]);
 
   // Resize observer
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const ro = new ResizeObserver(() => render());
+    const ro = new ResizeObserver(() => scheduleRender());
     ro.observe(container);
     return () => ro.disconnect();
-  }, [render]);
+  }, [scheduleRender]);
 
-  // Mouse → canvas coords
+
+
+  useEffect(() => {
+    canvasActionsRef.current = {
+      exportImage: (
+        format: string = "image/png",
+        quality: number = 0.92,
+      ): string | null => {
+        if (!imageEl || !state.image) return null;
+        const offscreen = document.createElement("canvas");
+        offscreen.width = state.image.width;
+        offscreen.height = state.image.height;
+        const ctx = offscreen.getContext("2d")!;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+
+        // Apply filters
+        ctx.filter = buildFilterString(state.filters);
+        ctx.drawImage(imageEl, 0, 0);
+        ctx.filter = "none";
+
+        // Draw layers using shared utility (no selection outlines)
+        renderLayers(ctx, state.layers, overlayImages.current);
+
+        return offscreen.toDataURL(format, quality);
+      },
+
+      applyCrop: () => {
+        if (!imageEl || !state.image || !state.crop.active) return;
+        const { x, y, width, height } = state.crop;
+        const offscreen = document.createElement("canvas");
+        offscreen.width = width;
+        offscreen.height = height;
+        const ctx = offscreen.getContext("2d")!;
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
+        ctx.filter = buildFilterString(state.filters);
+        ctx.drawImage(imageEl, x, y, width, height, 0, 0, width, height);
+        applyCrop(offscreen.toDataURL("image/png"), width, height);
+      },
+
+      applyLayerCrop: () => {
+        const selected = state.layers.find((l) => l.id === state.selectedLayerId);
+        if (!selected || selected.type !== "image" || !state.layerCrop.active)
+          return;
+
+        const cached = overlayImages.current.get(selected.id);
+        if (!cached) return;
+
+        const il = selected as ImageLayer;
+        const cx = il.cropX ?? 0;
+        const cy = il.cropY ?? 0;
+        const cw = il.cropWidth ?? cached.img.naturalWidth;
+        const ch = il.cropHeight ?? cached.img.naturalHeight;
+
+        const { x, y, width, height } = state.layerCrop;
+        const scaleX = cw / il.width;
+        const scaleY = ch / il.height;
+
+        const newCropX = cx + (x - il.x) * scaleX;
+        const newCropY = cy + (y - il.y) * scaleY;
+        const newCropW = width * scaleX;
+        const newCropH = height * scaleY;
+
+        setTool("select");
+        updateLayer(il.id, {
+          cropX: newCropX,
+          cropY: newCropY,
+          cropWidth: newCropW,
+          cropHeight: newCropH,
+          originalWidth: cached.img.naturalWidth,
+          originalHeight: cached.img.naturalHeight,
+          x,
+          y,
+          width,
+          height,
+        });
+      },
+    };
+
+    return () => {
+      canvasActionsRef.current = null;
+    };
+  }, [imageEl, state, applyCrop, setTool, updateLayer, canvasActionsRef]);
+
+
+
   const toCanvasCoords = useCallback(
     (clientX: number, clientY: number) => {
       const container = containerRef.current;
@@ -268,7 +288,7 @@ export default function Canvas() {
       if (state.activeTool === "crop" && state.crop.active) {
         let handle: string | null = null;
         let isInside = false;
-        const hs = 15 / state.zoom; // slightly larger hit area for easier grabbing
+        const hs = 15 / state.zoom;
         const { x: cx, y: cy, width: cw, height: ch } = state.crop;
 
         const inRect = (
@@ -325,8 +345,9 @@ export default function Canvas() {
     },
     [
       state.activeTool,
-      state.crop.active,
-      state.layerCrop.active,
+      state.crop,
+      state.layerCrop,
+      state.zoom,
       state.panX,
       state.panY,
       toCanvasCoords,
@@ -367,7 +388,7 @@ export default function Canvas() {
   );
 
   const handlePointerUp = useCallback(
-    (_e: React.PointerEvent) => {
+    () => {
       if (isPanning.current) {
         isPanning.current = false;
         return;
@@ -387,142 +408,6 @@ export default function Canvas() {
     },
     [state.zoom, setZoom],
   );
-
-  // Export function exposed via ref-like pattern
-  useEffect(() => {
-    // Attach export function to window for IPC access
-    (window as any).__oynx_export = (
-      format: string = "image/png",
-      quality: number = 0.92,
-    ): string | null => {
-      if (!imageEl || !state.image) return null;
-      const offscreen = document.createElement("canvas");
-      offscreen.width = state.image.width;
-      offscreen.height = state.image.height;
-      const ctx = offscreen.getContext("2d")!;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-
-      // Apply filters
-      ctx.filter = buildFilterString(state.filters);
-      ctx.drawImage(imageEl, 0, 0);
-      ctx.filter = "none";
-
-      // Draw layers
-      for (const l of state.layers) {
-        if (!l.visible) continue;
-        ctx.save();
-        ctx.translate(l.x, l.y);
-        if (l.rotation) ctx.rotate((l.rotation * Math.PI) / 180);
-        ctx.globalAlpha = l.opacity;
-
-        if (l.type === "text") {
-          ctx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px "${l.fontFamily}", sans-serif`;
-          ctx.textBaseline = "top";
-
-          const metrics = ctx.measureText(l.text);
-          const textHeight = l.fontSize;
-
-          if (l.backgroundColor) {
-            ctx.fillStyle = l.backgroundColor;
-            ctx.fillRect(-4, -4, metrics.width + 8, textHeight + 8);
-          }
-
-          ctx.fillStyle = l.color;
-          ctx.fillText(l.text, 0, textHeight * 0.1);
-
-          if (l.strokeColor && l.strokeWidth) {
-            ctx.strokeStyle = l.strokeColor;
-            ctx.lineWidth = l.strokeWidth;
-            ctx.strokeText(l.text, 0, textHeight * 0.1);
-          }
-        } else if (l.type === "image") {
-          let cached = overlayImages.current.get(l.id);
-          if (cached && cached.img.complete) {
-            const cx = (l as any).cropX ?? 0;
-            const cy = (l as any).cropY ?? 0;
-            const cw = (l as any).cropWidth ?? cached.img.naturalWidth;
-            const ch = (l as any).cropHeight ?? cached.img.naturalHeight;
-            const radius = (l as any).borderRadius || 0;
-
-            if (radius > 0) {
-              ctx.save();
-              ctx.beginPath();
-              ctx.roundRect(0, 0, l.width, l.height, radius);
-              ctx.clip();
-              ctx.drawImage(cached.img, cx, cy, cw, ch, 0, 0, l.width, l.height);
-              ctx.restore();
-            } else {
-              ctx.drawImage(cached.img, cx, cy, cw, ch, 0, 0, l.width, l.height);
-            }
-          }
-        }
-
-        ctx.globalAlpha = 1;
-        ctx.restore();
-      }
-
-      return offscreen.toDataURL(format, quality);
-    };
-
-    // Attach crop apply function
-    (window as any).__oynx_applyCrop = () => {
-      if (!imageEl || !state.image || !state.crop.active) return;
-      const { x, y, width, height } = state.crop;
-      const offscreen = document.createElement("canvas");
-      offscreen.width = width;
-      offscreen.height = height;
-      const ctx = offscreen.getContext("2d")!;
-      ctx.imageSmoothingEnabled = true;
-      ctx.imageSmoothingQuality = "high";
-      ctx.filter = buildFilterString(state.filters);
-      ctx.drawImage(imageEl, x, y, width, height, 0, 0, width, height);
-      applyCrop(offscreen.toDataURL("image/png"), width, height);
-    };
-
-    (window as any).__oynx_applyLayerCrop = () => {
-      const selected = state.layers.find((l) => l.id === state.selectedLayerId);
-      if (!selected || selected.type !== "image" || !state.layerCrop.active)
-        return;
-
-      const cached = overlayImages.current.get(selected.id);
-      if (!cached) return;
-
-      const cx = (selected as any).cropX ?? 0;
-      const cy = (selected as any).cropY ?? 0;
-      const cw = (selected as any).cropWidth ?? cached.img.naturalWidth;
-      const ch = (selected as any).cropHeight ?? cached.img.naturalHeight;
-
-      const { x, y, width, height } = state.layerCrop;
-      const scaleX = cw / selected.width;
-      const scaleY = ch / selected.height;
-
-      const newCropX = cx + (x - selected.x) * scaleX;
-      const newCropY = cy + (y - selected.y) * scaleY;
-      const newCropW = width * scaleX;
-      const newCropH = height * scaleY;
-
-      setTool("select");
-      updateLayer(selected.id, {
-        cropX: newCropX,
-        cropY: newCropY,
-        cropWidth: newCropW,
-        cropHeight: newCropH,
-        originalWidth: cached.img.naturalWidth,
-        originalHeight: cached.img.naturalHeight,
-        x,
-        y,
-        width,
-        height,
-      });
-    };
-
-    return () => {
-      delete (window as any).__oynx_export;
-      delete (window as any).__oynx_applyCrop;
-      delete (window as any).__oynx_applyLayerCrop;
-    };
-  }, [imageEl, state, applyCrop, setTool, updateLayer]);
 
   return (
     <div
@@ -554,23 +439,14 @@ export default function Canvas() {
   );
 }
 
-function drawCheckerboard(ctx: CanvasRenderingContext2D, w: number, h: number) {
-  const size = 12;
-  const c1 = "#1e1e22";
-  const c2 = "#2a2a2e";
-  for (let y = 0; y < h; y += size) {
-    for (let x = 0; x < w; x += size) {
-      ctx.fillStyle = (x / size + y / size) % 2 === 0 ? c1 : c2;
-      ctx.fillRect(x, y, size, size);
-    }
-  }
-}
+
 
 function drawCropOverlay(
   ctx: CanvasRenderingContext2D,
   imgW: number,
   imgH: number,
   crop: { x: number; y: number; width: number; height: number },
+  primaryColor: string,
 ) {
   // Dim outside area
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
@@ -585,10 +461,6 @@ function drawCropOverlay(
   ctx.fillRect(0, crop.y + crop.height, imgW, imgH - crop.y - crop.height);
 
   // Crop border
-  const primaryColor =
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--primary")
-      .trim() || "white";
   ctx.strokeStyle = primaryColor;
   ctx.lineWidth = 2;
   ctx.strokeRect(crop.x, crop.y, crop.width, crop.height);
@@ -626,11 +498,8 @@ function drawCropOverlay(
 function drawLayerCropOverlay(
   ctx: CanvasRenderingContext2D,
   crop: { x: number; y: number; width: number; height: number },
+  primaryColor: string,
 ) {
-  const primaryColor =
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--primary")
-      .trim() || "white";
   ctx.strokeStyle = primaryColor;
   ctx.lineWidth = 2;
   ctx.setLineDash([4, 4]);

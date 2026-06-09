@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { useEditor } from "../context/EditorContext";
 import LayerProperties from "./LayerProperties";
 import FilterPanel from "./FilterPanel";
@@ -7,14 +7,14 @@ import { TextT, FunnelSimple } from "@phosphor-icons/react";
 type Tab = "layers" | "filters";
 
 export default function PropertiesPanel() {
-  const { state, setTool } = useEditor();
-  const [activeTab, setActiveTab] = useState<Tab>("layers");
+  const { state } = useEditor();
+  const [selectedTab, setSelectedTab] = useState<Tab>("layers");
 
-  useEffect(() => {
-    if (state.activeTool === "text") {
-      setActiveTab("layers");
-    }
-  }, [state.activeTool]);
+  // When text tool is active, always show the layers tab regardless of selection
+  const activeTab = useMemo<Tab>(
+    () => (state.activeTool === "text" ? "layers" : selectedTab),
+    [state.activeTool, selectedTab],
+  );
 
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "layers", label: "Layers", icon: <TextT size={15} /> },
@@ -28,14 +28,7 @@ export default function PropertiesPanel() {
         {tabs.map(({ id, label, icon }) => (
           <button
             key={id}
-            onClick={() => {
-              setActiveTab(id);
-              if (id === "filters" && state.activeTool === "text") {
-                setTool("select");
-              } else if (id === "layers") {
-                setTool("text");
-              }
-            }}
+            onClick={() => setSelectedTab(id)}
             className={`flex flex-1 items-center justify-center gap-1.5 px-3 py-2.5 text-xs font-medium transition-colors ${
               activeTab === id
                 ? "border-b-2 border-primary text-foreground"
