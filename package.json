@@ -1,12 +1,9 @@
 {
   "name": "onyx",
-  "version": "1.0.5",
+  "version": "1.1.0",
   "description": "A modern desktop image editor",
   "homepage": "https://github.com/unsafezer0/Onyx",
-  "author": {
-    "name": "unsafezero",
-    "email": "unsafezero@gmail.com"
-  },
+  "author": "unsafezero <unsafezero@gmail.com>",
   "license": "MIT",
   "type": "module",
   "main": "electron/main/index.cjs",
@@ -66,6 +63,7 @@
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.7",
+    "idb-keyval": "^6.2.5",
     "react": "^19.2.6",
     "react-dom": "^19.2.6"
   },

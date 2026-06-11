@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from "react";
+import { useEffect, useCallback, useRef } from "react";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import { EditorProvider, useEditor } from "./context/EditorContext";
 import { formatFromExtension } from "./utils/renderUtils";
@@ -56,12 +56,23 @@ function MenuEventHandler() {
     const actions = canvasActionsRef.current;
     if (!actions) return;
 
-    // Step 1: Show dialog to get the chosen path
-    const result = await window.electronAPI?.saveFileAs();
-    if (!result) return;
+    let filePath = "";
+    let format = "png";
+
+    if (window.electronAPI) {
+      // Step 1: Show dialog to get the chosen path
+      const result = await window.electronAPI.saveFileAs();
+      if (!result) return;
+      filePath = result.filePath;
+      format = filePath.split(".").pop()?.toLowerCase() || "png";
+    } else {
+      // Web fallback
+      format = "png";
+      filePath = Date.now().toString().slice(-5) + ".png";
+    }
 
     // Step 2: Determine format from chosen extension
-    const ext = result.filePath.split(".").pop()?.toLowerCase() || "png";
+    const ext = format;
     const { mime, quality } = formatFromExtension(ext);
 
     // Step 3: Export in the correct format
@@ -69,7 +80,17 @@ function MenuEventHandler() {
     if (!dataUrl) return;
 
     // Step 4: Write the file
-    await window.electronAPI?.saveFile(dataUrl, result.filePath);
+    if (window.electronAPI) {
+      await window.electronAPI.saveFile(dataUrl, filePath);
+    } else {
+      // Web fallback: download the data URL
+      const a = document.createElement("a");
+      a.href = dataUrl;
+      a.download = filePath;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
     dispatch({ type: "MARK_SAVED" });
   }, [dispatch, canvasActionsRef]);
 
@@ -91,38 +112,59 @@ function MenuEventHandler() {
     }
   }, [state.image, dispatch, canvasActionsRef, handleSaveAs]);
 
+  const handleAction = useCallback((action: string) => {
+    switch (action) {
+      case "open":
+        openImage();
+        break;
+      case "save":
+        handleSave();
+        break;
+      case "save-as":
+      case "export":
+        handleSaveAs();
+        break;
+      case "undo":
+        undo();
+        break;
+      case "redo":
+        redo();
+        break;
+    }
+  }, [openImage, handleSave, handleSaveAs, undo, redo]);
+
   useEffect(() => {
-    const cleanup = window.electronAPI?.onMenuEvent((action: string) => {
-      switch (action) {
-        case "open":
-          openImage();
-          break;
-        case "save":
-          handleSave();
-          break;
-        case "save-as":
-        case "export":
-          handleSaveAs();
-          break;
-        case "undo":
-          undo();
-          break;
-        case "redo":
-          redo();
-          break;
-      }
-    });
+    // Listen for Electron menu events (keyboard shortcuts)
+    const cleanup = window.electronAPI?.onMenuEvent((action: string) => handleAction(action));
+
+    // Listen for custom DOM events from Header buttons
+    const domHandler = (e: Event) => handleAction((e as CustomEvent).detail);
+    window.addEventListener("onyx:menu-action", domHandler);
 
     return () => {
       cleanup?.();
+      window.removeEventListener("onyx:menu-action", domHandler);
     };
-  }, [openImage, handleSave, handleSaveAs, undo, redo]);
+  }, [handleAction]);
 
   return null;
 }
 
 function KeyboardEventHandler() {
-  const { state, updateLayer } = useEditor();
+  const { state, updateLayer, snapshotForUndo } = useEditor();
+
+  // Store in refs to avoid re-subscribing the keydown listener on every frame during drag.
+  const layersRef = useRef(state.layers);
+  const selectedIdRef = useRef(state.selectedLayerId);
+  useEffect(() => {
+    layersRef.current = state.layers;
+    selectedIdRef.current = state.selectedLayerId;
+  });
+
+  // Debounced undo snapshot: snapshot once before the first arrow key move,
+  // then suppress further snapshots until keys are idle for 500ms.
+  const snapshotPending = useRef(true);
+  const snapshotTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -134,9 +176,10 @@ function KeyboardEventHandler() {
         return;
       }
 
-      if (!state.selectedLayerId) return;
+      const selectedId = selectedIdRef.current;
+      if (!selectedId) return;
 
-      const layer = state.layers.find((l) => l.id === state.selectedLayerId);
+      const layer = layersRef.current.find((l) => l.id === selectedId);
       if (!layer) return;
 
       let dx = 0;
@@ -161,12 +204,24 @@ function KeyboardEventHandler() {
       }
 
       e.preventDefault();
+
+      // Snapshot once before the first move in a burst
+      if (snapshotPending.current) {
+        snapshotForUndo();
+        snapshotPending.current = false;
+      }
+      // Reset after idle
+      if (snapshotTimer.current) clearTimeout(snapshotTimer.current);
+      snapshotTimer.current = setTimeout(() => {
+        snapshotPending.current = true;
+      }, 500);
+
       updateLayer(layer.id, { x: layer.x + dx, y: layer.y + dy });
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [state.selectedLayerId, state.layers, updateLayer]);
+  }, [updateLayer, snapshotForUndo]); // stable deps only
 
   return null;
 }

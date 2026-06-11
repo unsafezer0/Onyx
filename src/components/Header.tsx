@@ -1,12 +1,13 @@
 import { useEditor } from "../context/EditorContext";
-import { useCallback } from "react";
-import { formatFromExtension } from "../utils/renderUtils";
+import { useCallback, useState, memo } from "react";
 import ThemeToggle from "./ThemeToggle";
+import UrlImportDialog from "./UrlImportDialog";
 import {
   ArrowCounterClockwise,
   ArrowClockwise,
   FloppyDisk,
   FolderOpen,
+  GlobeSimple,
   MagnifyingGlassPlus,
   MagnifyingGlassMinus,
   Check,
@@ -14,42 +15,15 @@ import {
   Export,
 } from "@phosphor-icons/react";
 
+/** Dispatch a menu action that MenuEventHandler in App.tsx will pick up. */
+function emitMenuAction(action: string) {
+  window.dispatchEvent(new CustomEvent("onyx:menu-action", { detail: action }));
+}
+
 export default function Header() {
-  const { state, undo, redo, canUndo, canRedo, setZoom, cancelCrop, dispatch, openImage, canvasActionsRef } =
+  const { state, undo, redo, canUndo, canRedo, setZoom, cancelCrop, openImage, canvasActionsRef } =
     useEditor();
-
-  const handleExport = useCallback(async () => {
-    const actions = canvasActionsRef.current;
-    if (!actions) return;
-
-    const result = await window.electronAPI?.saveFileAs();
-    if (!result) return;
-
-    const ext = result.filePath.split(".").pop()?.toLowerCase() || "png";
-    const { mime, quality } = formatFromExtension(ext);
-    const dataUrl = actions.exportImage(mime, quality);
-    if (!dataUrl) return;
-
-    await window.electronAPI?.saveFile(dataUrl, result.filePath);
-    dispatch({ type: "MARK_SAVED" });
-  }, [dispatch, canvasActionsRef]);
-
-  const handleSave = useCallback(async () => {
-    const actions = canvasActionsRef.current;
-    if (!actions || !state.image) return;
-
-    if (state.image.filePath) {
-      const ext = state.image.filePath.split(".").pop()?.toLowerCase() || "png";
-      const { mime, quality } = formatFromExtension(ext);
-      const dataUrl = actions.exportImage(mime, quality);
-      if (!dataUrl) return;
-      await window.electronAPI?.saveFile(dataUrl, state.image.filePath);
-      dispatch({ type: "MARK_SAVED" });
-    } else {
-      // Fall through to export (save-as)
-      await handleExport();
-    }
-  }, [state.image, dispatch, canvasActionsRef, handleExport]);
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
 
   const handleCropApply = useCallback(() => {
     canvasActionsRef.current?.applyCrop();
@@ -73,15 +47,20 @@ export default function Header() {
           onClick={openImage}
         />
         <ToolbarButton
+          icon={<GlobeSimple size={15} />}
+          label="Open from URL"
+          onClick={() => setShowUrlDialog(true)}
+        />
+        <ToolbarButton
           icon={<FloppyDisk size={15} />}
           label="Save (Ctrl+S)"
-          onClick={handleSave}
+          onClick={() => emitMenuAction("save")}
           disabled={!state.image}
         />
         <ToolbarButton
           icon={<Export size={15} />}
           label="Export (Ctrl+E)"
-          onClick={handleExport}
+          onClick={() => emitMenuAction("export")}
           disabled={!state.image}
         />
 
@@ -141,11 +120,14 @@ export default function Header() {
 
       {/* Right: Theme toggle */}
       <ThemeToggle />
+
+      {/* URL Import Dialog */}
+      <UrlImportDialog open={showUrlDialog} onClose={() => setShowUrlDialog(false)} />
     </header>
   );
 }
 
-function ToolbarButton({
+const ToolbarButton = memo(function ToolbarButton({
   icon,
   label,
   onClick,
@@ -178,4 +160,5 @@ function ToolbarButton({
       )}
     </div>
   );
-}
+});
+

@@ -13,6 +13,7 @@ import {
   X,
   ArrowsClockwise,
   CaretDown,
+  DotsSixVertical,
 } from "@phosphor-icons/react";
 import ColorPicker from "./ColorPicker";
 
@@ -30,8 +31,9 @@ const availableFonts = [
 ];
 
 export default function LayerProperties() {
-  const { state, updateLayer, removeLayer, addImageOverlay, startLayerCrop, cancelLayerCrop, addText, selectLayer, startCrop, cancelCrop, dispatch, canvasActionsRef } = useEditor();
+  const { state, updateLayer, removeLayer, reorderLayer, addImageOverlay, startLayerCrop, cancelLayerCrop, addText, selectLayer, startCrop, cancelCrop, dispatch, canvasActionsRef, snapshotForUndo } = useEditor();
   const selected = state.layers.find((l) => l.id === state.selectedLayerId);
+  const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
   const [isFontOpen, setIsFontOpen] = useState(false);
   const fontRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -119,6 +121,24 @@ export default function LayerProperties() {
 
   const handleApplyCrop = () => {
     canvasActionsRef.current?.applyCrop();
+  };
+
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDraggedIdx(index);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", index.toString());
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIdx: number) => {
+    e.preventDefault();
+    if (draggedIdx === null || draggedIdx === targetIdx) return;
+    reorderLayer(draggedIdx, targetIdx);
+    setDraggedIdx(null);
   };
 
   return (
@@ -313,6 +333,7 @@ export default function LayerProperties() {
                         max={20}
                         value={(selected as TextLayer).strokeWidth || 2}
                         onChange={(e) => updateLayer(selected.id, { strokeWidth: Number(e.target.value) })}
+                        onPointerDown={snapshotForUndo}
                         className="flex-1 accent-primary cursor-pointer"
                       />
                     </div>
@@ -333,6 +354,7 @@ export default function LayerProperties() {
               max={100}
               value={Math.round(selected.opacity * 100)}
               onChange={(e) => updateLayer(selected.id, { opacity: Number(e.target.value) / 100 })}
+              onPointerDown={snapshotForUndo}
               className="w-full accent-primary cursor-pointer"
             />
           </div>
@@ -348,6 +370,7 @@ export default function LayerProperties() {
               max={180}
               value={selected.rotation}
               onChange={(e) => updateLayer(selected.id, { rotation: Number(e.target.value) })}
+              onPointerDown={snapshotForUndo}
               className="w-full accent-primary cursor-pointer"
             />
           </div>
@@ -369,6 +392,7 @@ export default function LayerProperties() {
                     const newH = newW * ((selected as ImageLayer).height / (selected as ImageLayer).width);
                     updateLayer(selected.id, { width: newW, height: newH });
                   }}
+                  onPointerDown={snapshotForUndo}
                   className="w-full accent-primary cursor-pointer"
                 />
               </div>
@@ -384,6 +408,7 @@ export default function LayerProperties() {
                   max={200}
                   value={(selected as ImageLayer).borderRadius || 0}
                   onChange={(e) => updateLayer(selected.id, { borderRadius: Number(e.target.value) })}
+                  onPointerDown={snapshotForUndo}
                   className="w-full accent-primary cursor-pointer"
                 />
               </div>
@@ -446,56 +471,68 @@ export default function LayerProperties() {
       {state.layers.length > 0 && (
         <div className="flex flex-col gap-1">
           <h4 className="text-sm font-medium text-muted-foreground mb-1">Layers</h4>
-          {state.layers.map((l) => (
-            <div
-              key={l.id}
-              onClick={() => selectLayer(l.id)}
-              className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors ${
-                selected?.id === l.id
-                  ? "bg-primary/10 text-foreground"
-                  : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
-              }`}
-            >
-              <div className="flex items-center gap-2">
+          {state.layers.map((_, reverseIdx) => {
+            const index = state.layers.length - 1 - reverseIdx;
+            const lObj = state.layers[index];
+            return (
+              <div
+                key={lObj.id}
+                draggable
+                onDragStart={(e) => handleDragStart(e, index)}
+                onDragOver={handleDragOver}
+                onDrop={(e) => handleDrop(e, index)}
+                onClick={() => selectLayer(lObj.id)}
+                className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-xs transition-colors cursor-pointer ${
+                  selected?.id === lObj.id
+                    ? "bg-primary/10 text-foreground"
+                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+                } ${draggedIdx === index ? "opacity-50" : "opacity-100"}`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="cursor-grab hover:text-foreground mr-1 text-muted-foreground/50">
+                    <DotsSixVertical size={14} weight="bold" />
+                  </div>
+                  <div className="group relative flex items-center justify-center">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        snapshotForUndo();
+                        updateLayer(lObj.id, { visible: !lObj.visible });
+                      }}
+                      className="flex h-6 w-6 items-center justify-center rounded hover:bg-background/50"
+                    >
+                      {lObj.visible ? (
+                        <Eye size={14} className="text-muted-foreground" />
+                      ) : (
+                        <EyeSlash size={14} className="text-muted-foreground/50" />
+                      )}
+                    </button>
+                    <div className="pointer-events-none absolute left-1/2 top-full z-[100] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-medium text-popover-foreground shadow-md opacity-0 transition-all duration-200 group-hover:opacity-100">
+                      Toggle Visibility
+                    </div>
+                  </div>
+                  {lObj.type === "text" ? <TextT size={14} /> : <ImageIcon size={14} />}
+                  <span className="truncate max-w-[100px] text-xs text-foreground/80">
+                    {lObj.type === "text" ? ((lObj as TextLayer).text || "Empty text") : "Image"}
+                  </span>
+                </div>
                 <div className="group relative flex items-center justify-center">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      updateLayer(l.id, { visible: !l.visible });
+                      removeLayer(lObj.id);
                     }}
-                    className="flex h-6 w-6 items-center justify-center rounded hover:bg-background/50"
+                    className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   >
-                    {l.visible ? (
-                      <Eye size={14} className="text-muted-foreground" />
-                    ) : (
-                      <EyeSlash size={14} className="text-muted-foreground/50" />
-                    )}
+                    <Trash size={14} />
                   </button>
-                  <div className="pointer-events-none absolute left-1/2 top-full z-[100] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-medium text-popover-foreground shadow-md opacity-0 transition-all duration-200 group-hover:opacity-100">
-                    Toggle Visibility
+                  <div className="pointer-events-none absolute right-0 top-full z-[100] mt-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-medium text-popover-foreground shadow-md opacity-0 transition-all duration-200 group-hover:opacity-100">
+                    Delete Layer
                   </div>
                 </div>
-                {l.type === "text" ? <TextT size={14} /> : <ImageIcon size={14} />}
-                <span className="truncate max-w-[100px] text-xs text-foreground/80">
-                  {l.type === "text" ? ((l as TextLayer).text || "Empty text") : "Image"}
-                </span>
               </div>
-              <div className="group relative flex items-center justify-center">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    removeLayer(l.id);
-                  }}
-                  className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                >
-                  <Trash size={14} />
-                </button>
-                <div className="pointer-events-none absolute right-0 top-full z-[100] mt-1.5 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-medium text-popover-foreground shadow-md opacity-0 transition-all duration-200 group-hover:opacity-100">
-                  Delete Layer
-                </div>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

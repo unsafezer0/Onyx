@@ -6,11 +6,13 @@
     </clipPath>
   </defs>
 
+  <rect width="512" height="512" rx="112" fill="#262624" />
+
   <!-- Outermost accent ring -->
   <circle cx="256" cy="256" r="215" fill="none" stroke="#d97757" stroke-width="8" opacity="0.5" />
   
-  <!-- Main dark ring -->
-  <circle cx="256" cy="256" r="195" fill="none" stroke="#262624" stroke-width="40" />
+  <!-- Main ring (lightened to contrast with dark background) -->
+  <circle cx="256" cy="256" r="195" fill="none" stroke="#faf9f5" stroke-width="40" />
 
   <!-- Aperture Blades -->
   <g transform="translate(256, 256)" clip-path="url(#aperture-clip)">

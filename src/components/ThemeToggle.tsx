@@ -1,20 +1,19 @@
-import { Sun, Moon, Monitor } from "@phosphor-icons/react";
+import { memo } from "react";
+import { Sun, Moon } from "@phosphor-icons/react";
 import type { Theme } from "../hooks/useTheme";
 import { useTheme } from "../hooks/useTheme";
 
 const icons: Record<Theme, React.ReactNode> = {
   light: <Sun size={16} />,
   dark: <Moon size={16} />,
-  system: <Monitor size={16} />,
 };
 
 const labels: Record<Theme, string> = {
   light: "Light",
   dark: "Dark",
-  system: "System",
 };
 
-export default function ThemeToggle() {
+const ThemeToggle = memo(function ThemeToggle() {
   const { theme, cycle } = useTheme();
 
   return (
@@ -27,4 +26,6 @@ export default function ThemeToggle() {
       <span>{labels[theme]}</span>
     </button>
   );
-}
+});
+
+export default ThemeToggle;

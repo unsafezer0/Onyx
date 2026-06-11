@@ -9,6 +9,18 @@ export interface OverlayImageEntry {
 
 export type OverlayImageCache = Map<string, OverlayImageEntry>;
 
+/**
+ * Removes entries from the overlay cache whose layer IDs are no longer active.
+ * Prevents memory leaks when layers are deleted.
+ */
+export function pruneOverlayCache(cache: OverlayImageCache, activeLayerIds: Set<string>): void {
+  for (const key of cache.keys()) {
+    if (!activeLayerIds.has(key)) {
+      cache.delete(key);
+    }
+  }
+}
+
 
 
 let cachedPattern: CanvasPattern | null = null;

@@ -12,6 +12,7 @@ export interface FileSaveResult {
 export interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   openFile: () => Promise<FileOpenResult | null>;
+  openFileFromUrl: (url: string) => Promise<FileOpenResult | { error: string } | null>;
   saveFile: (dataUrl: string, filePath: string) => Promise<boolean>;
   /** Shows save-as dialog only. Returns chosen path info, or null if cancelled. */
   saveFileAs: () => Promise<FileSaveResult | null>;

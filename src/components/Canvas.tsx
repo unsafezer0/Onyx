@@ -6,6 +6,7 @@ import { useLayerCrop } from "../hooks/useLayerCrop";
 import {
   getCheckerboardPattern,
   renderLayers,
+  pruneOverlayCache,
   type OverlayImageCache,
 } from "../utils/renderUtils";
 
@@ -22,7 +23,7 @@ export default function Canvas() {
     updateLayer,
     canvasActionsRef,
   } = useEditor();
-  const { onPointerDown, onPointerMove, onPointerUp, hitTestLayer } =
+  const { onPointerDown, onPointerMove, onPointerUp, hitTestLayer, guides } =
     useLayerDrag();
   const { onCropPointerDown, onCropPointerMove, onCropPointerUp } = useCrop();
   const {
@@ -35,6 +36,16 @@ export default function Canvas() {
   const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
   const overlayImages = useRef<OverlayImageCache>(new Map());
   const rafId = useRef<number>(0);
+
+  // Stable refs for state and imageEl — avoids recreating callbacks on every state change.
+  const stateRef = useRef(state);
+  const imageElRef = useRef(imageEl);
+  const guidesRef = useRef(guides);
+  useEffect(() => {
+    stateRef.current = state;
+    imageElRef.current = imageEl;
+    guidesRef.current = guides;
+  });
 
   // Cache the resolved --primary CSS variable; re-read only on theme changes.
   const primaryColorRef = useRef<string>("");
@@ -67,11 +78,13 @@ export default function Canvas() {
   // Stable ref for triggering re-render from inside render callback
   const scheduleRenderRef = useRef<() => void>(() => {});
 
-  // Render canvas (coalesced via rAF)
+  // Render canvas (coalesced via rAF) — reads from refs for stability.
   const render = useCallback(() => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d");
-    if (!canvas || !ctx || !imageEl || !state.image) return;
+    const curImageEl = imageElRef.current;
+    const s = stateRef.current;
+    if (!canvas || !ctx || !curImageEl || !s.image) return;
 
     const dpr = window.devicePixelRatio || 1;
     const container = containerRef.current;
@@ -90,42 +103,74 @@ export default function Canvas() {
     ctx.fillRect(0, 0, cw, ch);
 
     // Calculate centered position with zoom
-    const imgW = state.image.width * state.zoom;
-    const imgH = state.image.height * state.zoom;
-    const offsetX = (cw - imgW) / 2 + state.panX;
-    const offsetY = (ch - imgH) / 2 + state.panY;
+    const imgW = s.image.width * s.zoom;
+    const imgH = s.image.height * s.zoom;
+    const offsetX = (cw - imgW) / 2 + s.panX;
+    const offsetY = (ch - imgH) / 2 + s.panY;
 
     ctx.save();
     ctx.translate(offsetX, offsetY);
-    ctx.scale(state.zoom, state.zoom);
+    ctx.scale(s.zoom, s.zoom);
 
     // Draw image with filters
-    const filterStr = buildFilterString(state.filters);
+    const filterStr = buildFilterString(s.filters);
     ctx.filter = filterStr;
-    ctx.drawImage(imageEl, 0, 0, state.image.width, state.image.height);
+    ctx.drawImage(curImageEl, 0, 0, s.image.width, s.image.height);
     ctx.filter = "none";
 
-    // Draw layers using shared utility
-    const showSelection = state.activeTool === "select" || state.activeTool === "text";
-    renderLayers(ctx, state.layers, overlayImages.current, {
-      selectedLayerId: showSelection ? state.selectedLayerId : null,
-      zoom: state.zoom,
+    // Draw layers using shared utility, clipping to the image bounds
+    const showSelection = s.activeTool === "select" || s.activeTool === "text";
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, s.image.width, s.image.height);
+    ctx.clip();
+    
+    renderLayers(ctx, s.layers, overlayImages.current, {
+      selectedLayerId: showSelection ? s.selectedLayerId : null,
+      zoom: s.zoom,
       primaryColor: primaryColorRef.current,
       onImageLoad: () => scheduleRenderRef.current(),
     });
+    
+    ctx.restore();
+
+    // Prune overlay cache of deleted layers (#9)
+    const activeIds = new Set(s.layers.map((l) => l.id));
+    pruneOverlayCache(overlayImages.current, activeIds);
 
     // Draw crop overlay
-    if (state.crop.active && state.activeTool === "crop") {
-      drawCropOverlay(ctx, state.image.width, state.image.height, state.crop, primaryColorRef.current);
+    if (s.crop.active && s.activeTool === "crop") {
+      drawCropOverlay(ctx, s.image.width, s.image.height, s.crop, primaryColorRef.current);
     }
 
     // Draw layer crop overlay
-    if (state.layerCrop.active && state.activeTool === "cropLayer") {
-      drawLayerCropOverlay(ctx, state.layerCrop, primaryColorRef.current);
+    if (s.layerCrop.active && s.activeTool === "cropLayer") {
+      drawLayerCropOverlay(ctx, s.layerCrop, primaryColorRef.current);
+    }
+
+    // Draw snapping guides
+    const activeGuides = guidesRef.current;
+    if (activeGuides && activeGuides.length > 0 && s.activeTool === "select") {
+      ctx.save();
+      ctx.strokeStyle = primaryColorRef.current;
+      ctx.lineWidth = 1 / s.zoom;
+      ctx.setLineDash([5 / s.zoom, 5 / s.zoom]);
+      ctx.beginPath();
+      for (const guide of activeGuides) {
+        if (guide.axis === "x") {
+          ctx.moveTo(guide.position, 0);
+          ctx.lineTo(guide.position, s.image.height);
+        } else {
+          ctx.moveTo(0, guide.position);
+          ctx.lineTo(s.image.width, guide.position);
+        }
+      }
+      ctx.stroke();
+      ctx.restore();
     }
 
     ctx.restore();
-  }, [imageEl, state]);
+  }, []); // stable — reads everything from refs
 
   const scheduleRender = useCallback(() => {
     cancelAnimationFrame(rafId.current);
@@ -133,10 +178,11 @@ export default function Canvas() {
   }, [render]);
   useEffect(() => { scheduleRenderRef.current = scheduleRender; }, [scheduleRender]);
 
+  // Re-schedule render whenever state or imageEl or guides change.
   useEffect(() => {
     scheduleRender();
     return () => cancelAnimationFrame(rafId.current);
-  }, [scheduleRender]);
+  }, [scheduleRender, state, imageEl, guides]);
 
   // Resize observer
   useEffect(() => {
@@ -149,48 +195,59 @@ export default function Canvas() {
 
 
 
+  // Register canvas actions — reads from refs for stability.
   useEffect(() => {
     canvasActionsRef.current = {
       exportImage: (
         format: string = "image/png",
         quality: number = 0.92,
       ): string | null => {
-        if (!imageEl || !state.image) return null;
+        const curImageEl = imageElRef.current;
+        const s = stateRef.current;
+        if (!curImageEl || !s.image) return null;
         const offscreen = document.createElement("canvas");
-        offscreen.width = state.image.width;
-        offscreen.height = state.image.height;
+        offscreen.width = s.image.width;
+        offscreen.height = s.image.height;
         const ctx = offscreen.getContext("2d")!;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
 
         // Apply filters
-        ctx.filter = buildFilterString(state.filters);
-        ctx.drawImage(imageEl, 0, 0);
+        ctx.filter = buildFilterString(s.filters);
+        ctx.drawImage(curImageEl, 0, 0);
         ctx.filter = "none";
 
-        // Draw layers using shared utility (no selection outlines)
-        renderLayers(ctx, state.layers, overlayImages.current);
+        // Draw layers using shared utility (no selection outlines), clipping to the image bounds
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(0, 0, s.image.width, s.image.height);
+        ctx.clip();
+        renderLayers(ctx, s.layers, overlayImages.current);
+        ctx.restore();
 
         return offscreen.toDataURL(format, quality);
       },
 
       applyCrop: () => {
-        if (!imageEl || !state.image || !state.crop.active) return;
-        const { x, y, width, height } = state.crop;
+        const curImageEl = imageElRef.current;
+        const s = stateRef.current;
+        if (!curImageEl || !s.image || !s.crop.active) return;
+        const { x, y, width, height } = s.crop;
         const offscreen = document.createElement("canvas");
         offscreen.width = width;
         offscreen.height = height;
         const ctx = offscreen.getContext("2d")!;
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = "high";
-        ctx.filter = buildFilterString(state.filters);
-        ctx.drawImage(imageEl, x, y, width, height, 0, 0, width, height);
+        ctx.filter = buildFilterString(s.filters);
+        ctx.drawImage(curImageEl, x, y, width, height, 0, 0, width, height);
         applyCrop(offscreen.toDataURL("image/png"), width, height);
       },
 
       applyLayerCrop: () => {
-        const selected = state.layers.find((l) => l.id === state.selectedLayerId);
-        if (!selected || selected.type !== "image" || !state.layerCrop.active)
+        const s = stateRef.current;
+        const selected = s.layers.find((l) => l.id === s.selectedLayerId);
+        if (!selected || selected.type !== "image" || !s.layerCrop.active)
           return;
 
         const cached = overlayImages.current.get(selected.id);
@@ -202,7 +259,7 @@ export default function Canvas() {
         const cw = il.cropWidth ?? cached.img.naturalWidth;
         const ch = il.cropHeight ?? cached.img.naturalHeight;
 
-        const { x, y, width, height } = state.layerCrop;
+        const { x, y, width, height } = s.layerCrop;
         const scaleX = cw / il.width;
         const scaleY = ch / il.height;
 
@@ -230,27 +287,29 @@ export default function Canvas() {
     return () => {
       canvasActionsRef.current = null;
     };
-  }, [imageEl, state, applyCrop, setTool, updateLayer, canvasActionsRef]);
+  }, [applyCrop, setTool, updateLayer, canvasActionsRef]);
 
 
 
+  // Stable toCanvasCoords — reads state from ref to avoid recreating on every pan/zoom.
   const toCanvasCoords = useCallback(
     (clientX: number, clientY: number) => {
       const container = containerRef.current;
-      if (!container || !state.image) return { x: 0, y: 0 };
+      const s = stateRef.current;
+      if (!container || !s.image) return { x: 0, y: 0 };
       const rect = container.getBoundingClientRect();
       const cw = container.clientWidth;
       const ch = container.clientHeight;
-      const imgW = state.image.width * state.zoom;
-      const imgH = state.image.height * state.zoom;
-      const offsetX = (cw - imgW) / 2 + state.panX;
-      const offsetY = (ch - imgH) / 2 + state.panY;
+      const imgW = s.image.width * s.zoom;
+      const imgH = s.image.height * s.zoom;
+      const offsetX = (cw - imgW) / 2 + s.panX;
+      const offsetY = (ch - imgH) / 2 + s.panY;
       return {
-        x: (clientX - rect.left - offsetX) / state.zoom,
-        y: (clientY - rect.top - offsetY) / state.zoom,
+        x: (clientX - rect.left - offsetX) / s.zoom,
+        y: (clientY - rect.top - offsetY) / s.zoom,
       };
     },
-    [state.image, state.zoom, state.panX, state.panY],
+    [], // stable — reads from stateRef
   );
 
   const handleDoubleClick = useCallback(
@@ -400,13 +459,26 @@ export default function Canvas() {
     [onPointerUp, onCropPointerUp, onLayerCropPointerUp],
   );
 
+  // Wheel zoom batched via rAF to avoid 60+ dispatches/sec on trackpads.
+  const pendingZoom = useRef<number | null>(null);
+  const zoomRafId = useRef<number>(0);
+
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      setZoom(state.zoom * delta);
+      const base = pendingZoom.current ?? stateRef.current.zoom;
+      pendingZoom.current = base * delta;
+
+      cancelAnimationFrame(zoomRafId.current);
+      zoomRafId.current = requestAnimationFrame(() => {
+        if (pendingZoom.current !== null) {
+          setZoom(pendingZoom.current);
+          pendingZoom.current = null;
+        }
+      });
     },
-    [state.zoom, setZoom],
+    [setZoom],
   );
 
   return (

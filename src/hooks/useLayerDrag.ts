@@ -1,11 +1,17 @@
 import { useCallback, useRef, useState } from "react";
 import { useEditor } from "../context/EditorContext";
 
+export interface Guide {
+  axis: "x" | "y";
+  position: number;
+}
+
 export function useLayerDrag() {
   const { state, updateLayer, selectLayer, snapshotForUndo } = useEditor();
   const [resizing, setResizing] = useState<{ id: string; handle: string } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
-  const dragStart = useRef<{ x: number; y: number; layerX: number; layerY: number; layerW: number; layerH: number } | null>(null);
+  const [guides, setGuides] = useState<Guide[]>([]);
+  const dragStart = useRef<{ x: number; y: number; layerX: number; layerY: number; layerW: number; layerH: number; xTargets?: number[]; yTargets?: number[]; } | null>(null);
 
   const hitTestLayer = useCallback(
     (canvasX: number, canvasY: number): { id: string; handle?: string } | null => {
@@ -91,7 +97,32 @@ export function useLayerDrag() {
         if (l) {
           // Snapshot for undo BEFORE the drag/resize begins
           snapshotForUndo();
-          dragStart.current = { x: canvasX, y: canvasY, layerX: l.x, layerY: l.y, layerW: l.type === "image" ? l.width : 0, layerH: l.type === "image" ? l.height : 0 };
+          
+          let xTargets: number[] = [];
+          let yTargets: number[] = [];
+          if (state.image && !hit.handle) {
+            xTargets = [0, state.image.width / 2, state.image.width];
+            yTargets = [0, state.image.height / 2, state.image.height];
+            for (const other of state.layers) {
+              if (other.id === hit.id || !other.visible) continue;
+              const oW = other.type === "image" ? other.width : other.type === "text" ? other.text.length * other.fontSize * 0.6 : 0;
+              const oH = other.type === "image" ? other.height : other.type === "text" ? other.fontSize * 1.2 : 0;
+              xTargets.push(other.x, other.x + oW / 2, other.x + oW);
+              yTargets.push(other.y, other.y + oH / 2, other.y + oH);
+            }
+          }
+
+          dragStart.current = { 
+            x: canvasX, 
+            y: canvasY, 
+            layerX: l.x, 
+            layerY: l.y, 
+            layerW: l.type === "image" ? l.width : 0, 
+            layerH: l.type === "image" ? l.height : 0,
+            xTargets,
+            yTargets
+          };
+          
           if (hit.handle) {
             setResizing({ id: hit.id, handle: hit.handle });
           } else {
@@ -103,7 +134,7 @@ export function useLayerDrag() {
       selectLayer(null);
       return false;
     },
-    [hitTestLayer, selectLayer, state.layers, snapshotForUndo],
+    [hitTestLayer, selectLayer, state.layers, snapshotForUndo, state.image],
   );
 
   const onPointerMove = useCallback(
@@ -156,19 +187,66 @@ export function useLayerDrag() {
       if (dragging) {
         const dx = canvasX - dragStart.current.x;
         const dy = canvasY - dragStart.current.y;
-        updateLayer(dragging, {
-          x: dragStart.current.layerX + dx,
-          y: dragStart.current.layerY + dy,
-        });
+        let newX = dragStart.current.layerX + dx;
+        let newY = dragStart.current.layerY + dy;
+        
+        const layer = state.layers.find(l => l.id === dragging);
+        if (layer && state.image) {
+          const lW = layer.type === "image" ? layer.width : layer.type === "text" ? layer.text.length * layer.fontSize * 0.6 : 0;
+          const lH = layer.type === "image" ? layer.height : layer.type === "text" ? layer.fontSize * 1.2 : 0;
+          
+          const snapThreshold = 5 / state.zoom;
+          const activeGuides: Guide[] = [];
+
+          const xTargets = dragStart.current.xTargets || [];
+          const yTargets = dragStart.current.yTargets || [];
+
+          // Points on dragged layer to check
+          const myXPoints = [newX, newX + lW / 2, newX + lW];
+          const myYPoints = [newY, newY + lH / 2, newY + lH];
+
+          // Check X snap
+          let snappedX = false;
+          for (const mx of myXPoints) {
+            if (snappedX) break;
+            for (const tx of xTargets) {
+              if (Math.abs(mx - tx) < snapThreshold) {
+                newX += (tx - mx);
+                activeGuides.push({ axis: "x", position: tx });
+                snappedX = true;
+                break;
+              }
+            }
+          }
+
+          // Check Y snap
+          let snappedY = false;
+          for (const my of myYPoints) {
+            if (snappedY) break;
+            for (const ty of yTargets) {
+              if (Math.abs(my - ty) < snapThreshold) {
+                newY += (ty - my);
+                activeGuides.push({ axis: "y", position: ty });
+                snappedY = true;
+                break;
+              }
+            }
+          }
+          
+          setGuides(activeGuides);
+        }
+
+        updateLayer(dragging, { x: newX, y: newY });
         return true;
       }
 
       return false;
     },
-    [dragging, resizing, updateLayer],
+    [dragging, resizing, updateLayer, state.image, state.zoom, state.layers],
   );
 
   const onPointerUp = useCallback(() => {
+    setGuides([]);
     if (dragging || resizing) {
       setDragging(null);
       setResizing(null);
@@ -178,5 +256,5 @@ export function useLayerDrag() {
     return false;
   }, [dragging, resizing]);
 
-  return { dragging, hitTestLayer, onPointerDown, onPointerMove, onPointerUp };
+  return { dragging, guides, hitTestLayer, onPointerDown, onPointerMove, onPointerUp };
 }

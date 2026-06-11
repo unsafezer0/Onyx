@@ -1,9 +1,11 @@
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { useEditor } from "../context/EditorContext";
-import { ImageSquare, UploadSimple } from "@phosphor-icons/react";
+import { ImageSquare, UploadSimple, GlobeSimple } from "@phosphor-icons/react";
+import UrlImportDialog from "./UrlImportDialog";
 
 export default function WelcomeScreen() {
   const { loadImage, openImage } = useEditor();
+  const [showUrlDialog, setShowUrlDialog] = useState(false);
 
   const handleDrop = useCallback(
     (e: React.DragEvent) => {
@@ -60,22 +62,34 @@ export default function WelcomeScreen() {
             Open an image to get started
           </h2>
           <p className="max-w-xs text-center text-sm leading-relaxed text-muted-foreground">
-            Drag and drop an image here, or click the button below to browse your files.
+            Drag and drop an image here, or click a button below to get started.
           </p>
         </div>
 
-        <button
-          onClick={openImage}
-          className="inline-flex items-center gap-2.5 rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-200 hover:shadow-xl hover:shadow-primary/30 hover:brightness-110 active:scale-[0.98]"
-        >
-          <UploadSimple size={18} weight="bold" />
-          Open Image
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={openImage}
+            className="inline-flex items-center gap-2.5 rounded-xl bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-lg shadow-primary/25 transition-all duration-200 hover:shadow-xl hover:shadow-primary/30 hover:brightness-110 active:scale-[0.98]"
+          >
+            <UploadSimple size={18} weight="bold" />
+            Open Image
+          </button>
+          <button
+            onClick={() => setShowUrlDialog(true)}
+            className="inline-flex items-center gap-2.5 rounded-xl border border-border bg-card/60 px-6 py-3 text-sm font-medium text-foreground shadow-sm transition-all duration-200 hover:bg-card hover:shadow-md active:scale-[0.98]"
+          >
+            <GlobeSimple size={18} weight="duotone" />
+            Open from URL
+          </button>
+        </div>
 
         <p className="text-xs text-muted-foreground/50">
           Supports PNG, JPG, WebP, BMP, and GIF
         </p>
       </div>
+
+      <UrlImportDialog open={showUrlDialog} onClose={() => setShowUrlDialog(false)} />
     </div>
   );
 }
+

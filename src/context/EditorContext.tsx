@@ -1,4 +1,5 @@
-import { createContext, useContext, useReducer, useCallback, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useReducer, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from "react";
+import { set, get, del } from "idb-keyval";
 
 
 
@@ -133,6 +134,7 @@ type EditorAction =
   | { type: "ADD_LAYER"; payload: Layer }
   | { type: "UPDATE_LAYER"; payload: { id: string; changes: Partial<Layer> } }
   | { type: "REMOVE_LAYER"; payload: string }
+  | { type: "REORDER_LAYER"; payload: { startIndex: number; endIndex: number } }
   | { type: "SELECT_LAYER"; payload: string | null }
   | { type: "SET_FILTERS"; payload: Partial<FilterState> }
   | { type: "RESET_FILTERS" }
@@ -204,6 +206,17 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
           state.selectedLayerId === action.payload ? null : state.selectedLayerId,
         isDirty: true,
       };
+
+    case "REORDER_LAYER": {
+      const result = Array.from(state.layers);
+      const [removed] = result.splice(action.payload.startIndex, 1);
+      result.splice(action.payload.endIndex, 0, removed);
+      return {
+        ...state,
+        layers: result,
+        isDirty: true,
+      };
+    }
 
     case "SELECT_LAYER":
       return { ...state, selectedLayerId: action.payload };
@@ -327,10 +340,12 @@ interface EditorContextValue {
   dispatch: React.Dispatch<EditorAction>;
   loadImage: (info: ImageInfo) => void;
   openImage: () => Promise<void>;
+  openImageFromUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
   addText: (overrides?: Partial<TextLayer>) => void;
   addImageOverlay: (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => void;
   updateLayer: (id: string, changes: Partial<Layer>) => void;
   removeLayer: (id: string) => void;
+  reorderLayer: (startIndex: number, endIndex: number) => void;
   selectLayer: (id: string | null) => void;
   setFilters: (f: Partial<FilterState>) => void;
   resetFilters: () => void;
@@ -364,10 +379,93 @@ function generateId(prefix: string): string {
 
 
 
-const MAX_HISTORY = 30;
+const MAX_HISTORY = 20;
+
+/**
+ * Blob deduplication for undo history.
+ * Large base64 dataUrl strings are stored once in a refcounted map and
+ * replaced with lightweight hash keys inside history snapshots.
+ * This prevents the same multi-MB string from being duplicated 20× in memory.
+ */
+interface BlobStore {
+  blobs: Map<string, { data: string; refCount: number }>;
+}
+
+function hashDataUrl(dataUrl: string): string {
+  // Fast identity hash — use the length + a sample of chars as a key.
+  // Collisions are acceptable here because the store checks equality.
+  const len = dataUrl.length;
+  if (len < 200) return dataUrl; // small strings are cheaper to keep inline
+  return `__blob_${len}_${dataUrl.charCodeAt(50)}${dataUrl.charCodeAt(len >> 1)}${dataUrl.charCodeAt(len - 50)}`;
+}
+
+function internBlob(store: BlobStore, dataUrl: string): string {
+  if (dataUrl.length < 200) return dataUrl;
+  const key = hashDataUrl(dataUrl);
+  const existing = store.blobs.get(key);
+  if (existing) {
+    // Verify it's actually the same string (collision guard)
+    if (existing.data === dataUrl) {
+      existing.refCount++;
+      return key;
+    }
+    // Collision — store inline (extremely rare)
+    return dataUrl;
+  }
+  store.blobs.set(key, { data: dataUrl, refCount: 1 });
+  return key;
+}
+
+function resolveBlob(store: BlobStore, keyOrData: string): string {
+  const entry = store.blobs.get(keyOrData);
+  return entry ? entry.data : keyOrData;
+}
+
+function releaseBlobs(store: BlobStore, snapshot: EditorState): void {
+  const release = (key: string) => {
+    const entry = store.blobs.get(key);
+    if (entry) {
+      entry.refCount--;
+      if (entry.refCount <= 0) store.blobs.delete(key);
+    }
+  };
+  if (snapshot.image?.dataUrl) release(snapshot.image.dataUrl);
+  for (const l of snapshot.layers) {
+    if (l.type === "image") release((l as ImageLayer).dataUrl);
+  }
+}
+
+function internSnapshot(store: BlobStore, state: EditorState): EditorState {
+  const image = state.image
+    ? { ...state.image, dataUrl: internBlob(store, state.image.dataUrl) }
+    : null;
+  const layers = state.layers.map((l) => {
+    if (l.type === "image") {
+      return { ...l, dataUrl: internBlob(store, (l as ImageLayer).dataUrl) } as Layer;
+    }
+    return l;
+  });
+  return { ...state, image, layers };
+}
+
+function resolveSnapshot(store: BlobStore, snapshot: EditorState): EditorState {
+  const image = snapshot.image
+    ? { ...snapshot.image, dataUrl: resolveBlob(store, snapshot.image.dataUrl) }
+    : null;
+  const layers = snapshot.layers.map((l) => {
+    if (l.type === "image") {
+      return { ...l, dataUrl: resolveBlob(store, (l as ImageLayer).dataUrl) } as Layer;
+    }
+    return l;
+  });
+  return { ...snapshot, image, layers };
+}
 
 export function EditorProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(editorReducer, initialState);
+
+  // Blob deduplication store for undo history
+  const blobStoreRef = useRef<BlobStore>({ blobs: new Map() });
 
   // History stored in a ref; canUndo/canRedo are explicit state so React re-renders.
   const historyRef = useRef<{ past: EditorState[]; future: EditorState[] }>({
@@ -380,6 +478,31 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   // Canvas actions registry — Canvas registers its functions here.
   const canvasActionsRef = useRef<CanvasActions | null>(null);
 
+  // Ref to current state — allows callbacks to read latest state without dep churn.
+  const stateRef = useRef(state);
+  useEffect(() => { stateRef.current = state; });
+
+  // Auto-restore session on mount
+  useEffect(() => {
+    get<EditorState>("onyx-session").then((savedState) => {
+      if (savedState && savedState.image) {
+        dispatch({ type: "RESTORE_STATE", payload: savedState });
+      }
+    }).catch(console.error);
+  }, []);
+
+  // Auto-save session on changes (debounced)
+  useEffect(() => {
+    if (!state.image) {
+      del("onyx-session").catch(console.error);
+      return;
+    }
+    const timer = setTimeout(() => {
+      set("onyx-session", state).catch(console.error);
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [state]);
+
   const syncHistoryFlags = useCallback(() => {
     setCanUndo(historyRef.current.past.length > 0);
     setCanRedo(historyRef.current.future.length > 0);
@@ -387,13 +510,26 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const snapshotForUndo = useCallback(() => {
     const h = historyRef.current;
-    h.past = [...h.past.slice(-(MAX_HISTORY - 1)), state];
+    const store = blobStoreRef.current;
+    const interned = internSnapshot(store, stateRef.current);
+    // Evict oldest snapshot if at capacity
+    if (h.past.length >= MAX_HISTORY) {
+      const evicted = h.past.shift();
+      if (evicted) releaseBlobs(store, evicted);
+    }
+    h.past = [...h.past, interned];
+    // Release blobs in discarded future
+    for (const snap of h.future) releaseBlobs(store, snap);
     h.future = [];
     syncHistoryFlags();
-  }, [state, syncHistoryFlags]);
+  }, [syncHistoryFlags]);
 
   const loadImage = useCallback(
     (info: ImageInfo) => {
+      // Release all blobs in history
+      const store = blobStoreRef.current;
+      for (const snap of historyRef.current.past) releaseBlobs(store, snap);
+      for (const snap of historyRef.current.future) releaseBlobs(store, snap);
       historyRef.current = { past: [], future: [] };
       syncHistoryFlags();
       dispatch({ type: "LOAD_IMAGE", payload: info });
@@ -418,15 +554,76 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     img.src = result.dataUrl;
   }, [loadImage]);
 
+  const openImageFromUrl = useCallback(
+    async (url: string): Promise<{ success: boolean; error?: string }> => {
+      try {
+        let dataUrl: string;
+        let fileName: string;
+
+        if (window.electronAPI?.openFileFromUrl) {
+          // Electron path: IPC to main process
+          const result = await window.electronAPI.openFileFromUrl(url);
+          if (!result) return { success: false, error: "Request was cancelled." };
+          if ("error" in result) return { success: false, error: result.error };
+          dataUrl = result.dataUrl;
+          fileName = result.fileName;
+        } else {
+          // Web fallback: fetch via browser
+          const res = await fetch(url);
+          if (!res.ok) return { success: false, error: `Server returned status ${res.status}.` };
+          const contentType = res.headers.get("content-type") || "";
+          if (!contentType.startsWith("image/")) {
+            return { success: false, error: `URL did not return an image (got ${contentType}).` };
+          }
+          const blob = await res.blob();
+          dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          try {
+            const pathname = new URL(url).pathname;
+            const base = pathname.split("/").pop();
+            fileName = base && base.includes(".") ? base : "image.png";
+          } catch {
+            fileName = "image.png";
+          }
+        }
+
+        return new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            loadImage({
+              dataUrl,
+              width: img.naturalWidth,
+              height: img.naturalHeight,
+              filePath: null,
+              fileName,
+            });
+            resolve({ success: true });
+          };
+          img.onerror = () => resolve({ success: false, error: "Failed to decode image data." });
+          img.src = dataUrl;
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : "Failed to fetch image from URL.";
+        return { success: false, error: msg };
+      }
+    },
+    [loadImage],
+  );
+
   const addText = useCallback(
     (overrides?: Partial<TextLayer>) => {
       snapshotForUndo();
+      const img = stateRef.current.image;
       const newText: TextLayer = {
         id: generateId("text"),
         type: "text",
         text: "Double-click to edit",
-        x: (state.image?.width ?? 400) / 2 - 100,
-        y: (state.image?.height ?? 300) / 2,
+        x: (img?.width ?? 400) / 2 - 100,
+        y: (img?.height ?? 300) / 2,
         fontSize: 32,
         fontFamily: "system-ui",
         color: "#ffffff",
@@ -442,20 +639,21 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       };
       dispatch({ type: "ADD_LAYER", payload: newText });
     },
-    [state, snapshotForUndo],
+    [snapshotForUndo],
   );
 
   const addImageOverlay = useCallback(
     (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => {
       snapshotForUndo();
+      const img = stateRef.current.image;
       const newImage: ImageLayer = {
         id: generateId("img"),
         type: "image",
         dataUrl,
         width,
         height,
-        x: (state.image?.width ?? 400) / 2 - width / 2,
-        y: (state.image?.height ?? 300) / 2 - height / 2,
+        x: (img?.width ?? 400) / 2 - width / 2,
+        y: (img?.height ?? 300) / 2 - height / 2,
         rotation: 0,
         opacity: 1,
         visible: true,
@@ -463,7 +661,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
       };
       dispatch({ type: "ADD_LAYER", payload: newImage });
     },
-    [state, snapshotForUndo],
+    [snapshotForUndo],
   );
 
   const updateLayer = useCallback(
@@ -477,6 +675,14 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     (id: string) => {
       snapshotForUndo();
       dispatch({ type: "REMOVE_LAYER", payload: id });
+    },
+    [snapshotForUndo],
+  );
+
+  const reorderLayer = useCallback(
+    (startIndex: number, endIndex: number) => {
+      snapshotForUndo();
+      dispatch({ type: "REORDER_LAYER", payload: { startIndex, endIndex } });
     },
     [snapshotForUndo],
   );
@@ -538,52 +744,93 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   const undo = useCallback(() => {
     const h = historyRef.current;
+    const store = blobStoreRef.current;
     if (h.past.length === 0) return;
-    const prev = h.past[h.past.length - 1];
+    const interned = h.past[h.past.length - 1];
     h.past = h.past.slice(0, -1);
-    h.future = [state, ...h.future];
+    // Intern current state before pushing to future
+    const currentInterned = internSnapshot(store, stateRef.current);
+    h.future = [currentInterned, ...h.future];
     syncHistoryFlags();
-    dispatch({ type: "RESTORE_STATE", payload: prev });
-  }, [state, syncHistoryFlags]);
+    dispatch({ type: "RESTORE_STATE", payload: resolveSnapshot(store, interned) });
+    // Release blobs from the snapshot we just resolved (they're now live in state)
+    releaseBlobs(store, interned);
+  }, [syncHistoryFlags]);
 
   const redo = useCallback(() => {
     const h = historyRef.current;
+    const store = blobStoreRef.current;
     if (h.future.length === 0) return;
-    const next = h.future[0];
+    const interned = h.future[0];
     h.future = h.future.slice(1);
-    h.past = [...h.past, state];
+    // Intern current state before pushing to past
+    const currentInterned = internSnapshot(store, stateRef.current);
+    h.past = [...h.past, currentInterned];
     syncHistoryFlags();
-    dispatch({ type: "RESTORE_STATE", payload: next });
-  }, [state, syncHistoryFlags]);
+    dispatch({ type: "RESTORE_STATE", payload: resolveSnapshot(store, interned) });
+    releaseBlobs(store, interned);
+  }, [syncHistoryFlags]);
 
-  const value: EditorContextValue = {
-    state,
-    dispatch,
-    loadImage,
-    openImage,
-    addText,
-    addImageOverlay,
-    updateLayer,
-    removeLayer,
-    selectLayer,
-    setFilters,
-    resetFilters,
-    setTool,
-    setZoom,
-    setPan,
-    startCrop,
-    applyCrop,
-    cancelCrop,
-    startLayerCrop,
-    setLayerCrop,
-    cancelLayerCrop,
-    snapshotForUndo,
-    undo,
-    redo,
-    canUndo,
-    canRedo,
-    canvasActionsRef,
-  };
+  const value: EditorContextValue = useMemo(
+    () => ({
+      state,
+      dispatch,
+      loadImage,
+      openImage,
+      openImageFromUrl,
+      addText,
+      addImageOverlay,
+      updateLayer,
+      removeLayer,
+      reorderLayer,
+      selectLayer,
+      setFilters,
+      resetFilters,
+      setTool,
+      setZoom,
+      setPan,
+      startCrop,
+      applyCrop,
+      cancelCrop,
+      startLayerCrop,
+      setLayerCrop,
+      cancelLayerCrop,
+      snapshotForUndo,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+      canvasActionsRef,
+    }),
+    [
+      state,
+      loadImage,
+      openImage,
+      openImageFromUrl,
+      addText,
+      addImageOverlay,
+      updateLayer,
+      removeLayer,
+      reorderLayer,
+      selectLayer,
+      setFilters,
+      resetFilters,
+      setTool,
+      setZoom,
+      setPan,
+      startCrop,
+      applyCrop,
+      cancelCrop,
+      startLayerCrop,
+      setLayerCrop,
+      cancelLayerCrop,
+      snapshotForUndo,
+      undo,
+      redo,
+      canUndo,
+      canRedo,
+    ],
+  );
 
   return (
     <EditorContext.Provider value={value}>{children}</EditorContext.Provider>
