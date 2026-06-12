@@ -150,7 +150,7 @@ export default function Canvas() {
 
     // Draw snapping guides
     const activeGuides = guidesRef.current;
-    if (activeGuides && activeGuides.length > 0 && s.activeTool === "select") {
+    if (activeGuides && activeGuides.length > 0 && (s.activeTool === "select" || s.activeTool === "text")) {
       ctx.save();
       ctx.strokeStyle = primaryColorRef.current;
       ctx.lineWidth = 1 / s.zoom;

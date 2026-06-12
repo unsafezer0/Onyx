@@ -6,6 +6,23 @@ export interface Guide {
   position: number;
 }
 
+let _measureCtx: CanvasRenderingContext2D | null = null;
+function getLayerBounds(l: any) {
+  if (l.type === "image") {
+    return { w: l.width, h: l.height };
+  }
+  if (l.type === "text") {
+    if (!_measureCtx) {
+      const c = document.createElement("canvas");
+      _measureCtx = c.getContext("2d");
+    }
+    if (!_measureCtx) return { w: l.text.length * l.fontSize * 0.6, h: l.fontSize };
+    _measureCtx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px "${l.fontFamily}", sans-serif`;
+    return { w: _measureCtx.measureText(l.text).width, h: l.fontSize };
+  }
+  return { w: 0, h: 0 };
+}
+
 export function useLayerDrag() {
   const { state, updateLayer, selectLayer, snapshotForUndo } = useEditor();
   const [resizing, setResizing] = useState<{ id: string; handle: string } | null>(null);
@@ -54,16 +71,7 @@ export function useLayerDrag() {
         const l = state.layers[i];
         if (!l.visible) continue;
 
-        let approxWidth = 0;
-        let approxHeight = 0;
-
-        if (l.type === "text") {
-          approxWidth = l.text.length * l.fontSize * 0.6;
-          approxHeight = l.fontSize * 1.2;
-        } else if (l.type === "image") {
-          approxWidth = l.width;
-          approxHeight = l.height;
-        }
+        const { w: approxWidth, h: approxHeight } = getLayerBounds(l);
 
         const cx = l.x + approxWidth / 2;
         const cy = l.y + approxHeight / 2;
@@ -105,8 +113,7 @@ export function useLayerDrag() {
             yTargets = [0, state.image.height / 2, state.image.height];
             for (const other of state.layers) {
               if (other.id === hit.id || !other.visible) continue;
-              const oW = other.type === "image" ? other.width : other.type === "text" ? other.text.length * other.fontSize * 0.6 : 0;
-              const oH = other.type === "image" ? other.height : other.type === "text" ? other.fontSize * 1.2 : 0;
+              const { w: oW, h: oH } = getLayerBounds(other);
               xTargets.push(other.x, other.x + oW / 2, other.x + oW);
               yTargets.push(other.y, other.y + oH / 2, other.y + oH);
             }
@@ -192,8 +199,7 @@ export function useLayerDrag() {
         
         const layer = state.layers.find(l => l.id === dragging);
         if (layer && state.image) {
-          const lW = layer.type === "image" ? layer.width : layer.type === "text" ? layer.text.length * layer.fontSize * 0.6 : 0;
-          const lH = layer.type === "image" ? layer.height : layer.type === "text" ? layer.fontSize * 1.2 : 0;
+          const { w: lW, h: lH } = getLayerBounds(layer);
           
           const snapThreshold = 5 / state.zoom;
           const activeGuides: Guide[] = [];

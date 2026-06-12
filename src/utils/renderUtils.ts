@@ -111,14 +111,16 @@ function renderTextLayer(
     ctx.fillRect(-4, -4, metrics.width + 8, textHeight + 8);
   }
 
-  ctx.fillStyle = l.color;
-  ctx.fillText(l.text, 0, textHeight * 0.1);
-
   if (l.strokeColor && l.strokeWidth) {
     ctx.strokeStyle = l.strokeColor;
-    ctx.lineWidth = l.strokeWidth;
+    ctx.lineWidth = l.strokeWidth * 2;
+    ctx.lineJoin = "round";
+    ctx.miterLimit = 2;
     ctx.strokeText(l.text, 0, textHeight * 0.1);
   }
+
+  ctx.fillStyle = l.color;
+  ctx.fillText(l.text, 0, textHeight * 0.1);
 
   // Selection outline
   if (selectedLayerId === l.id && primaryColor) {
