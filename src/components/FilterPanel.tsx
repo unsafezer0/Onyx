@@ -1,4 +1,8 @@
-import { useEditor, defaultFilters, type FilterState } from "../context/EditorContext";
+import {
+  useEditor,
+  defaultFilters,
+  type FilterState,
+} from "../context/EditorContext";
 import { ArrowCounterClockwise } from "@phosphor-icons/react";
 
 interface SliderDef {
@@ -10,15 +14,64 @@ interface SliderDef {
   defaultValue: number;
 }
 
-const SLIDERS: SliderDef[] = [
-  { key: "brightness", label: "Brightness", min: 0, max: 200, unit: "%", defaultValue: 100 },
-  { key: "contrast", label: "Contrast", min: 0, max: 200, unit: "%", defaultValue: 100 },
-  { key: "saturation", label: "Saturation", min: 0, max: 200, unit: "%", defaultValue: 100 },
-  { key: "hueRotate", label: "Hue Rotate", min: -180, max: 180, unit: "°", defaultValue: 0 },
+const sliders: SliderDef[] = [
+  {
+    key: "brightness",
+    label: "Brightness",
+    min: 0,
+    max: 200,
+    unit: "%",
+    defaultValue: 100,
+  },
+  {
+    key: "contrast",
+    label: "Contrast",
+    min: 0,
+    max: 200,
+    unit: "%",
+    defaultValue: 100,
+  },
+  {
+    key: "saturation",
+    label: "Saturation",
+    min: 0,
+    max: 200,
+    unit: "%",
+    defaultValue: 100,
+  },
+  {
+    key: "hueRotate",
+    label: "Hue Rotate",
+    min: -180,
+    max: 180,
+    unit: "°",
+    defaultValue: 0,
+  },
   { key: "blur", label: "Blur", min: 0, max: 20, unit: "px", defaultValue: 0 },
-  { key: "grayscale", label: "Grayscale", min: 0, max: 100, unit: "%", defaultValue: 0 },
-  { key: "sepia", label: "Sepia", min: 0, max: 100, unit: "%", defaultValue: 0 },
-  { key: "invert", label: "Invert", min: 0, max: 100, unit: "%", defaultValue: 0 },
+  {
+    key: "grayscale",
+    label: "Grayscale",
+    min: 0,
+    max: 100,
+    unit: "%",
+    defaultValue: 0,
+  },
+  {
+    key: "sepia",
+    label: "Sepia",
+    min: 0,
+    max: 100,
+    unit: "%",
+    defaultValue: 0,
+  },
+  {
+    key: "invert",
+    label: "Invert",
+    min: 0,
+    max: 100,
+    unit: "%",
+    defaultValue: 0,
+  },
 ];
 
 interface Preset {
@@ -26,7 +79,7 @@ interface Preset {
   filters: Partial<FilterState>;
 }
 
-const PRESETS: Preset[] = [
+const presets: Preset[] = [
   {
     name: "Vintage",
     filters: { sepia: 40, brightness: 110, contrast: 85, saturation: 70 },
@@ -59,7 +112,7 @@ export default function FilterPanel() {
   const isDefault = (key: keyof FilterState) =>
     state.filters[key] === defaultFilters[key];
 
-  const allDefault = SLIDERS.every((s) => isDefault(s.key));
+  const allDefault = sliders.every((s) => isDefault(s.key));
 
   const isPresetActive = (preset: Preset) => {
     // Check if current filter state exactly matches this preset
@@ -74,9 +127,11 @@ export default function FilterPanel() {
     <div className="flex flex-col gap-4 p-4">
       {/* Presets */}
       <div className="flex flex-col gap-2">
-        <h4 className="text-sm font-medium text-muted-foreground mb-1">Presets</h4>
+        <h4 className="text-sm font-medium text-muted-foreground mb-1">
+          Presets
+        </h4>
         <div className="grid grid-cols-3 gap-1.5">
-          {PRESETS.map((p) => {
+          {presets.map((p) => {
             const active = isPresetActive(p);
             return (
               <button
@@ -102,8 +157,10 @@ export default function FilterPanel() {
 
       {/* Sliders */}
       <div className="flex flex-col gap-3">
-        <h4 className="text-sm font-medium text-muted-foreground mb-1">Adjustments</h4>
-        {SLIDERS.map((s) => (
+        <h4 className="text-sm font-medium text-muted-foreground mb-1">
+          Adjustments
+        </h4>
+        {sliders.map((s) => (
           <div key={s.key} className="flex flex-col gap-1">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-medium text-muted-foreground/90">

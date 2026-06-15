@@ -1,5 +1,9 @@
 import { useRef, useEffect, useCallback, useState } from "react";
-import { useEditor, buildFilterString, type ImageLayer } from "../context/EditorContext";
+import {
+  useEditor,
+  buildFilterString,
+  type ImageLayer,
+} from "../context/EditorContext";
 import { useLayerDrag } from "../hooks/useLayerDrag";
 import { useCrop } from "../hooks/useCrop";
 import { useLayerCrop } from "../hooks/useLayerCrop";
@@ -72,7 +76,9 @@ export default function Canvas() {
     const img = new Image();
     img.onload = () => setImageEl(img);
     img.src = imageDataUrl;
-    return () => { setImageEl(null); };
+    return () => {
+      setImageEl(null);
+    };
   }, [imageDataUrl]);
 
   // Stable ref for triggering re-render from inside render callback
@@ -124,14 +130,14 @@ export default function Canvas() {
     ctx.beginPath();
     ctx.rect(0, 0, s.image.width, s.image.height);
     ctx.clip();
-    
+
     renderLayers(ctx, s.layers, overlayImages.current, {
       selectedLayerId: showSelection ? s.selectedLayerId : null,
       zoom: s.zoom,
       primaryColor: primaryColorRef.current,
       onImageLoad: () => scheduleRenderRef.current(),
     });
-    
+
     ctx.restore();
 
     // Prune overlay cache of deleted layers (#9)
@@ -140,7 +146,13 @@ export default function Canvas() {
 
     // Draw crop overlay
     if (s.crop.active && s.activeTool === "crop") {
-      drawCropOverlay(ctx, s.image.width, s.image.height, s.crop, primaryColorRef.current);
+      drawCropOverlay(
+        ctx,
+        s.image.width,
+        s.image.height,
+        s.crop,
+        primaryColorRef.current,
+      );
     }
 
     // Draw layer crop overlay
@@ -150,7 +162,11 @@ export default function Canvas() {
 
     // Draw snapping guides
     const activeGuides = guidesRef.current;
-    if (activeGuides && activeGuides.length > 0 && (s.activeTool === "select" || s.activeTool === "text")) {
+    if (
+      activeGuides &&
+      activeGuides.length > 0 &&
+      (s.activeTool === "select" || s.activeTool === "text")
+    ) {
       ctx.save();
       ctx.strokeStyle = primaryColorRef.current;
       ctx.lineWidth = 1 / s.zoom;
@@ -176,7 +192,9 @@ export default function Canvas() {
     cancelAnimationFrame(rafId.current);
     rafId.current = requestAnimationFrame(render);
   }, [render]);
-  useEffect(() => { scheduleRenderRef.current = scheduleRender; }, [scheduleRender]);
+  useEffect(() => {
+    scheduleRenderRef.current = scheduleRender;
+  }, [scheduleRender]);
 
   // Re-schedule render whenever state or imageEl or guides change.
   useEffect(() => {
@@ -192,8 +210,6 @@ export default function Canvas() {
     ro.observe(container);
     return () => ro.disconnect();
   }, [scheduleRender]);
-
-
 
   // Register canvas actions — reads from refs for stability.
   useEffect(() => {
@@ -288,8 +304,6 @@ export default function Canvas() {
       canvasActionsRef.current = null;
     };
   }, [applyCrop, setTool, updateLayer, canvasActionsRef]);
-
-
 
   // Stable toCanvasCoords — reads state from ref to avoid recreating on every pan/zoom.
   const toCanvasCoords = useCallback(
@@ -446,18 +460,15 @@ export default function Canvas() {
     ],
   );
 
-  const handlePointerUp = useCallback(
-    () => {
-      if (isPanning.current) {
-        isPanning.current = false;
-        return;
-      }
-      onPointerUp();
-      onCropPointerUp();
-      onLayerCropPointerUp();
-    },
-    [onPointerUp, onCropPointerUp, onLayerCropPointerUp],
-  );
+  const handlePointerUp = useCallback(() => {
+    if (isPanning.current) {
+      isPanning.current = false;
+      return;
+    }
+    onPointerUp();
+    onCropPointerUp();
+    onLayerCropPointerUp();
+  }, [onPointerUp, onCropPointerUp, onLayerCropPointerUp]);
 
   // Wheel zoom batched via rAF to avoid 60+ dispatches/sec on trackpads.
   const pendingZoom = useRef<number | null>(null);
@@ -510,8 +521,6 @@ export default function Canvas() {
     </div>
   );
 }
-
-
 
 function drawCropOverlay(
   ctx: CanvasRenderingContext2D,

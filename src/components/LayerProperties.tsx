@@ -1,5 +1,9 @@
-import { useState, useRef, useEffect } from "react";
-import { useEditor, type TextLayer, type ImageLayer } from "../context/EditorContext";
+import { useState, useRef } from "react";
+import {
+  useEditor,
+  type TextLayer,
+  type ImageLayer,
+} from "../context/EditorContext";
 import {
   Trash,
   TextB,
@@ -12,10 +16,11 @@ import {
   Check,
   X,
   ArrowsClockwise,
-  CaretDown,
   DotsSixVertical,
 } from "@phosphor-icons/react";
 import ColorPicker from "./ColorPicker";
+import { resizeImageIfTooLarge } from "../utils/renderUtils";
+import CustomSelect from "./CustomSelect";
 
 const availableFonts = [
   "system-ui",
@@ -28,27 +33,49 @@ const availableFonts = [
   "Comic Sans MS",
   "Trebuchet MS",
   "Palatino",
+  "Palatino",
+];
+
+const blendModeOptions = [
+  { value: "source-over", label: "Normal" },
+  { value: "multiply", label: "Multiply" },
+  { value: "screen", label: "Screen" },
+  { value: "overlay", label: "Overlay" },
+  { value: "darken", label: "Darken" },
+  { value: "lighten", label: "Lighten" },
+  { value: "color-dodge", label: "Color Dodge" },
+  { value: "color-burn", label: "Color Burn" },
+  { value: "hard-light", label: "Hard Light" },
+  { value: "soft-light", label: "Soft Light" },
+  { value: "difference", label: "Difference" },
+  { value: "exclusion", label: "Exclusion" },
+  { value: "hue", label: "Hue" },
+  { value: "saturation", label: "Saturation" },
+  { value: "color", label: "Color" },
+  { value: "luminosity", label: "Luminosity" },
 ];
 
 export default function LayerProperties() {
-  const { state, updateLayer, removeLayer, reorderLayer, addImageOverlay, startLayerCrop, cancelLayerCrop, addText, selectLayer, startCrop, cancelCrop, dispatch, canvasActionsRef, snapshotForUndo } = useEditor();
+  const {
+    state,
+    updateLayer,
+    removeLayer,
+    reorderLayer,
+    addImageOverlay,
+    startLayerCrop,
+    cancelLayerCrop,
+    addText,
+    selectLayer,
+    startCrop,
+    cancelCrop,
+    dispatch,
+    canvasActionsRef,
+    snapshotForUndo,
+  } = useEditor();
   const selected = state.layers.find((l) => l.id === state.selectedLayerId);
   const [draggedIdx, setDraggedIdx] = useState<number | null>(null);
-  const [isFontOpen, setIsFontOpen] = useState(false);
-  const fontRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replaceOverlayInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!isFontOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (fontRef.current && !fontRef.current.contains(e.target as Node)) {
-        setIsFontOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [isFontOpen]);
 
   const handleAddImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,11 +87,23 @@ export default function LayerProperties() {
       img.onload = () => {
         let w = img.naturalWidth;
         let h = img.naturalHeight;
+        let finalDataUrl = dataUrl;
         if (w > 600) {
           h = Math.round((600 / w) * h);
           w = 600;
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = "high";
+            ctx.drawImage(img, 0, 0, w, h);
+            // Use WebP to significantly reduce dataUrl size
+            finalDataUrl = canvas.toDataURL("image/webp", 0.9);
+          }
         }
-        addImageOverlay(dataUrl, w, h);
+        addImageOverlay(finalDataUrl, w, h);
       };
       img.src = dataUrl;
     };
@@ -99,20 +138,22 @@ export default function LayerProperties() {
   const handleReplaceBackground = async () => {
     const result = await window.electronAPI?.openFile();
     if (!result) return;
-    const img = new Image();
-    img.onload = () => {
+
+    try {
+      const resized = await resizeImageIfTooLarge(result.dataUrl);
       dispatch({
         type: "REPLACE_BACKGROUND",
         payload: {
-          dataUrl: result.dataUrl,
-          width: img.naturalWidth,
-          height: img.naturalHeight,
+          dataUrl: resized.dataUrl,
+          width: resized.width,
+          height: resized.height,
           filePath: result.filePath,
           fileName: result.fileName,
         },
       });
-    };
-    img.src = result.dataUrl;
+    } catch (e) {
+      console.error("Failed to replace background", e);
+    }
   };
 
   const handleApplyLayerCrop = () => {
@@ -187,7 +228,9 @@ export default function LayerProperties() {
                 <input
                   type="text"
                   value={(selected as TextLayer).text}
-                  onChange={(e) => updateLayer(selected.id, { text: e.target.value })}
+                  onChange={(e) =>
+                    updateLayer(selected.id, { text: e.target.value })
+                  }
                   className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none transition-colors focus:border-primary"
                 />
               </div>
@@ -197,32 +240,15 @@ export default function LayerProperties() {
                 <label className="text-[11px] font-medium text-muted-foreground/90">
                   Font
                 </label>
-                <div ref={fontRef} className="relative">
-                  <button
-                    onClick={() => setIsFontOpen(!isFontOpen)}
-                    className="flex w-full items-center justify-between rounded-md border border-border bg-background px-2.5 py-1.5 text-xs text-foreground outline-none hover:border-primary"
-                  >
-                    <span style={{ fontFamily: (selected as TextLayer).fontFamily }}>{(selected as TextLayer).fontFamily}</span>
-                    <CaretDown weight="bold" className="opacity-50" />
-                  </button>
-                  {isFontOpen && (
-                    <div className="absolute left-0 top-full z-50 mt-1 max-h-48 w-full overflow-y-auto rounded-md border border-border bg-popover py-1 shadow-md">
-                      {availableFonts.map((f) => (
-                        <button
-                          key={f}
-                          onClick={() => {
-                            updateLayer(selected.id, { fontFamily: f });
-                            setIsFontOpen(false);
-                          }}
-                          className={`w-full px-3 py-1.5 text-left text-xs hover:bg-muted ${(selected as TextLayer).fontFamily === f ? "bg-muted font-medium text-primary" : "text-foreground"}`}
-                          style={{ fontFamily: f }}
-                        >
-                          {f}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <CustomSelect
+                  value={(selected as TextLayer).fontFamily}
+                  options={availableFonts.map((f) => ({
+                    value: f,
+                    label: f,
+                    style: { fontFamily: f },
+                  }))}
+                  onChange={(f) => updateLayer(selected.id, { fontFamily: f })}
+                />
               </div>
 
               {/* Font size */}
@@ -235,7 +261,11 @@ export default function LayerProperties() {
                   min={8}
                   max={200}
                   value={(selected as TextLayer).fontSize}
-                  onChange={(e) => updateLayer(selected.id, { fontSize: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateLayer(selected.id, {
+                      fontSize: Number(e.target.value),
+                    })
+                  }
                   className="w-full accent-primary cursor-pointer"
                 />
               </div>
@@ -244,7 +274,11 @@ export default function LayerProperties() {
               <div className="flex gap-1.5">
                 <div className="group relative flex items-center justify-center">
                   <button
-                    onClick={() => updateLayer(selected.id, { bold: !(selected as TextLayer).bold })}
+                    onClick={() =>
+                      updateLayer(selected.id, {
+                        bold: !(selected as TextLayer).bold,
+                      })
+                    }
                     className={`flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
                       (selected as TextLayer).bold
                         ? "border-primary bg-primary/10 text-primary"
@@ -259,7 +293,11 @@ export default function LayerProperties() {
                 </div>
                 <div className="group relative flex items-center justify-center">
                   <button
-                    onClick={() => updateLayer(selected.id, { italic: !(selected as TextLayer).italic })}
+                    onClick={() =>
+                      updateLayer(selected.id, {
+                        italic: !(selected as TextLayer).italic,
+                      })
+                    }
                     className={`flex h-8 w-8 items-center justify-center rounded-md border transition-colors ${
                       (selected as TextLayer).italic
                         ? "border-primary bg-primary/10 text-primary"
@@ -292,7 +330,13 @@ export default function LayerProperties() {
                     Background
                   </label>
                   <button
-                    onClick={() => updateLayer(selected.id, { backgroundColor: (selected as TextLayer).backgroundColor ? "" : "#000000" })}
+                    onClick={() =>
+                      updateLayer(selected.id, {
+                        backgroundColor: (selected as TextLayer).backgroundColor
+                          ? ""
+                          : "#000000",
+                      })
+                    }
                     className="text-[10px] text-primary hover:underline"
                   >
                     {(selected as TextLayer).backgroundColor ? "Remove" : "Add"}
@@ -301,7 +345,9 @@ export default function LayerProperties() {
                 {(selected as TextLayer).backgroundColor && (
                   <ColorPicker
                     value={(selected as TextLayer).backgroundColor!}
-                    onChange={(c) => updateLayer(selected.id, { backgroundColor: c })}
+                    onChange={(c) =>
+                      updateLayer(selected.id, { backgroundColor: c })
+                    }
                   />
                 )}
               </div>
@@ -313,7 +359,16 @@ export default function LayerProperties() {
                     Border
                   </label>
                   <button
-                    onClick={() => updateLayer(selected.id, { strokeColor: (selected as TextLayer).strokeColor ? "" : "#000000", strokeWidth: (selected as TextLayer).strokeColor ? 0 : 2 })}
+                    onClick={() =>
+                      updateLayer(selected.id, {
+                        strokeColor: (selected as TextLayer).strokeColor
+                          ? ""
+                          : "#000000",
+                        strokeWidth: (selected as TextLayer).strokeColor
+                          ? 0
+                          : 2,
+                      })
+                    }
                     className="text-[10px] text-primary hover:underline"
                   >
                     {(selected as TextLayer).strokeColor ? "Remove" : "Add"}
@@ -323,16 +378,24 @@ export default function LayerProperties() {
                   <div className="flex flex-col gap-2 mt-1">
                     <ColorPicker
                       value={(selected as TextLayer).strokeColor!}
-                      onChange={(c) => updateLayer(selected.id, { strokeColor: c })}
+                      onChange={(c) =>
+                        updateLayer(selected.id, { strokeColor: c })
+                      }
                     />
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-muted-foreground w-12">W: {(selected as TextLayer).strokeWidth}px</span>
+                      <span className="text-[10px] text-muted-foreground w-12">
+                        W: {(selected as TextLayer).strokeWidth}px
+                      </span>
                       <input
                         type="range"
                         min={1}
                         max={20}
                         value={(selected as TextLayer).strokeWidth || 2}
-                        onChange={(e) => updateLayer(selected.id, { strokeWidth: Number(e.target.value) })}
+                        onChange={(e) =>
+                          updateLayer(selected.id, {
+                            strokeWidth: Number(e.target.value),
+                          })
+                        }
                         onPointerDown={snapshotForUndo}
                         className="flex-1 accent-primary cursor-pointer"
                       />
@@ -353,9 +416,30 @@ export default function LayerProperties() {
               min={0}
               max={100}
               value={Math.round(selected.opacity * 100)}
-              onChange={(e) => updateLayer(selected.id, { opacity: Number(e.target.value) / 100 })}
+              onChange={(e) =>
+                updateLayer(selected.id, {
+                  opacity: Number(e.target.value) / 100,
+                })
+              }
               onPointerDown={snapshotForUndo}
               className="w-full accent-primary cursor-pointer"
+            />
+          </div>
+
+          {/* Blend Mode */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[11px] font-medium text-muted-foreground/90">
+              Blend Mode
+            </label>
+            <CustomSelect
+              value={selected.blendMode ?? "source-over"}
+              options={blendModeOptions}
+              onChange={(value) => {
+                snapshotForUndo();
+                updateLayer(selected.id, {
+                  blendMode: value as GlobalCompositeOperation,
+                });
+              }}
             />
           </div>
 
@@ -369,7 +453,9 @@ export default function LayerProperties() {
               min={-180}
               max={180}
               value={selected.rotation}
-              onChange={(e) => updateLayer(selected.id, { rotation: Number(e.target.value) })}
+              onChange={(e) =>
+                updateLayer(selected.id, { rotation: Number(e.target.value) })
+              }
               onPointerDown={snapshotForUndo}
               className="w-full accent-primary cursor-pointer"
             />
@@ -389,7 +475,10 @@ export default function LayerProperties() {
                   value={(selected as ImageLayer).width}
                   onChange={(e) => {
                     const newW = Number(e.target.value);
-                    const newH = newW * ((selected as ImageLayer).height / (selected as ImageLayer).width);
+                    const newH =
+                      newW *
+                      ((selected as ImageLayer).height /
+                        (selected as ImageLayer).width);
                     updateLayer(selected.id, { width: newW, height: newH });
                   }}
                   onPointerDown={snapshotForUndo}
@@ -407,7 +496,11 @@ export default function LayerProperties() {
                   min={0}
                   max={200}
                   value={(selected as ImageLayer).borderRadius || 0}
-                  onChange={(e) => updateLayer(selected.id, { borderRadius: Number(e.target.value) })}
+                  onChange={(e) =>
+                    updateLayer(selected.id, {
+                      borderRadius: Number(e.target.value),
+                    })
+                  }
                   onPointerDown={snapshotForUndo}
                   className="w-full accent-primary cursor-pointer"
                 />
@@ -438,7 +531,7 @@ export default function LayerProperties() {
                   Crop Image
                 </button>
               )}
-              
+
               <input
                 type="file"
                 ref={replaceOverlayInputRef}
@@ -470,7 +563,9 @@ export default function LayerProperties() {
       {/* Layer list */}
       {state.layers.length > 0 && (
         <div className="flex flex-col gap-1">
-          <h4 className="text-sm font-medium text-muted-foreground mb-1">Layers</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-1">
+            Layers
+          </h4>
           {state.layers.map((_, reverseIdx) => {
             const index = state.layers.length - 1 - reverseIdx;
             const lObj = state.layers[index];
@@ -504,16 +599,25 @@ export default function LayerProperties() {
                       {lObj.visible ? (
                         <Eye size={14} className="text-muted-foreground" />
                       ) : (
-                        <EyeSlash size={14} className="text-muted-foreground/50" />
+                        <EyeSlash
+                          size={14}
+                          className="text-muted-foreground/50"
+                        />
                       )}
                     </button>
                     <div className="pointer-events-none absolute left-1/2 top-full z-[100] mt-1.5 -translate-x-1/2 whitespace-nowrap rounded-md border border-border bg-popover px-2 py-1 text-[10px] font-medium text-popover-foreground shadow-md opacity-0 transition-all duration-200 group-hover:opacity-100">
                       Toggle Visibility
                     </div>
                   </div>
-                  {lObj.type === "text" ? <TextT size={14} /> : <ImageIcon size={14} />}
+                  {lObj.type === "text" ? (
+                    <TextT size={14} />
+                  ) : (
+                    <ImageIcon size={14} />
+                  )}
                   <span className="truncate max-w-[100px] text-xs text-foreground/80">
-                    {lObj.type === "text" ? ((lObj as TextLayer).text || "Empty text") : "Image"}
+                    {lObj.type === "text"
+                      ? (lObj as TextLayer).text || "Empty text"
+                      : "Image"}
                   </span>
                 </div>
                 <div className="group relative flex items-center justify-center">
@@ -539,7 +643,9 @@ export default function LayerProperties() {
       {/* Background properties (when no layer is selected) */}
       {!selected && state.image && (
         <div className="flex flex-col gap-3 rounded-xl border border-border bg-card/50 p-3 mt-auto">
-          <h4 className="text-sm font-medium text-muted-foreground mb-1">Background Image</h4>
+          <h4 className="text-sm font-medium text-muted-foreground mb-1">
+            Background Image
+          </h4>
           {state.activeTool === "crop" ? (
             <div className="flex gap-2">
               <button

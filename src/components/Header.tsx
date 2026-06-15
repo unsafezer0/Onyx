@@ -21,8 +21,17 @@ function emitMenuAction(action: string) {
 }
 
 export default function Header() {
-  const { state, undo, redo, canUndo, canRedo, setZoom, cancelCrop, openImage, canvasActionsRef } =
-    useEditor();
+  const {
+    state,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
+    setZoom,
+    cancelCrop,
+    openImage,
+    canvasActionsRef,
+  } = useEditor();
   const [showUrlDialog, setShowUrlDialog] = useState(false);
 
   const handleCropApply = useCallback(() => {
@@ -122,7 +131,10 @@ export default function Header() {
       <ThemeToggle />
 
       {/* URL Import Dialog */}
-      <UrlImportDialog open={showUrlDialog} onClose={() => setShowUrlDialog(false)} />
+      <UrlImportDialog
+        open={showUrlDialog}
+        onClose={() => setShowUrlDialog(false)}
+      />
     </header>
   );
 }
@@ -161,4 +173,3 @@ const ToolbarButton = memo(function ToolbarButton({
     </div>
   );
 });
-

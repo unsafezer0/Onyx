@@ -7,7 +7,10 @@ interface UrlImportDialogProps {
   onClose: () => void;
 }
 
-export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps) {
+export default function UrlImportDialog({
+  open,
+  onClose,
+}: UrlImportDialogProps) {
   const { openImageFromUrl } = useEditor();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,7 +98,7 @@ export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps)
   return (
     <dialog
       ref={dialogRef}
-      className="url-import-dialog"
+      className="m-auto max-w-[100vw] max-h-[100vh] overflow-visible bg-transparent p-0 outline-none backdrop:bg-black/55 backdrop:backdrop-blur-sm open:animate-in open:fade-in open:slide-in-from-bottom-4 open:duration-250"
       onClick={handleBackdropClick}
       onKeyDown={handleKeyDown}
       onCancel={(e) => {
@@ -103,17 +106,19 @@ export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps)
         if (!loading) onClose();
       }}
     >
-      <div className="url-import-dialog__content">
+      <div className="w-[460px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-2xl border border-border bg-popover shadow-[0_24px_48px_-12px_rgba(0,0,0,0.25),inset_0_0_0_1px_rgba(255,255,255,0.04)]">
         {/* Header */}
-        <div className="url-import-dialog__header">
-          <div className="url-import-dialog__header-left">
-            <div className="url-import-dialog__icon">
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
               <GlobeSimple size={20} weight="duotone" />
             </div>
-            <h2 className="url-import-dialog__title">Open from URL</h2>
+            <h2 className="m-0 text-sm font-semibold tracking-tight text-foreground">
+              Open from URL
+            </h2>
           </div>
           <button
-            className="url-import-dialog__close"
+            className="flex h-7 w-7 items-center justify-center rounded-md border-none bg-transparent text-muted-foreground transition-all duration-150 hover:bg-accent/60 hover:text-foreground disabled:cursor-default disabled:opacity-30"
             onClick={onClose}
             disabled={loading}
             aria-label="Close"
@@ -123,16 +128,19 @@ export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps)
         </div>
 
         {/* Body */}
-        <form onSubmit={handleSubmit} className="url-import-dialog__body">
-          <label className="url-import-dialog__label" htmlFor="url-import-input">
+        <form onSubmit={handleSubmit} className="flex flex-col gap-3 p-5">
+          <label
+            className="text-xs font-medium tracking-[0.01em] text-muted-foreground"
+            htmlFor="url-import-input"
+          >
             Image URL
           </label>
-          <div className="url-import-dialog__input-row">
+          <div className="relative">
             <input
               ref={inputRef}
               id="url-import-input"
               type="url"
-              className="url-import-dialog__input"
+              className="box-border w-full rounded-lg border border-border bg-background px-3 py-2.5 font-mono text-[13px] text-foreground outline-none transition-colors duration-200 focus:border-primary focus:ring-3 focus:ring-primary/15 disabled:cursor-default disabled:opacity-50 placeholder:text-muted-foreground placeholder:opacity-50"
               placeholder="https://example.com/photo.jpg"
               value={url}
               onChange={(e) => {
@@ -147,19 +155,22 @@ export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps)
           </div>
 
           {error && (
-            <p className="url-import-dialog__error" role="alert">
+            <p
+              className="m-0 rounded-md border border-destructive/20 bg-destructive/10 px-2.5 py-2 text-xs leading-relaxed text-destructive animate-in fade-in slide-in-from-top-1 duration-200"
+              role="alert"
+            >
               {error}
             </p>
           )}
 
-          <p className="url-import-dialog__hint">
+          <p className="m-0 text-[11px] text-muted-foreground opacity-70">
             Paste a direct link to a PNG, JPG, WebP, BMP, or GIF image.
           </p>
 
-          <div className="url-import-dialog__actions">
+          <div className="mt-1 flex justify-end gap-2">
             <button
               type="button"
-              className="url-import-dialog__btn url-import-dialog__btn--secondary"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-transparent px-4 py-2 text-[13px] font-medium leading-none text-muted-foreground transition-all duration-150 hover:bg-accent/50 hover:text-foreground disabled:cursor-default disabled:opacity-40"
               onClick={onClose}
               disabled={loading}
             >
@@ -167,12 +178,12 @@ export default function UrlImportDialog({ open, onClose }: UrlImportDialogProps)
             </button>
             <button
               type="submit"
-              className="url-import-dialog__btn url-import-dialog__btn--primary"
+              className="inline-flex items-center gap-1.5 rounded-lg border-none bg-primary px-4 py-2 text-[13px] font-medium leading-none text-primary-foreground shadow-[0_1px_3px_color-mix(in_srgb,var(--primary)_30%,transparent)] transition-all duration-150 hover:filter-[brightness(1.1)] hover:shadow-[0_2px_8px_color-mix(in_srgb,var(--primary)_40%,transparent)] active:scale-98 disabled:cursor-default disabled:opacity-40"
               disabled={loading || !url.trim()}
             >
               {loading ? (
                 <>
-                  <CircleNotch size={16} className="url-import-dialog__spinner" />
+                  <CircleNotch size={16} className="animate-spin" />
                   Loading…
                 </>
               ) : (

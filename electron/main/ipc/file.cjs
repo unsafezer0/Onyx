@@ -5,7 +5,8 @@ const path = require("path");
 
 function registerFileIpc() {
   ipcMain.handle(ipcChannels.FILE_OPEN, async () => {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+    const win =
+      BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
 
     const result = await dialog.showOpenDialog(win, {
       title: "Open Image",
@@ -41,24 +42,29 @@ function registerFileIpc() {
     };
   });
 
-  ipcMain.handle(ipcChannels.FILE_SAVE, async (_event, { dataUrl, filePath }) => {
-    if (!filePath || !dataUrl) return false;
+  ipcMain.handle(
+    ipcChannels.FILE_SAVE,
+    async (_event, { dataUrl, filePath }) => {
+      if (!filePath || !dataUrl) return false;
 
-    try {
-      const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
-      const buffer = Buffer.from(base64Data, "base64");
-      await fs.promises.writeFile(filePath, buffer);
-      return true;
-    } catch {
-      return false;
-    }
-  });
+      try {
+        const base64Data = dataUrl.replace(/^data:image\/\w+;base64,/, "");
+        const buffer = Buffer.from(base64Data, "base64");
+        await fs.promises.writeFile(filePath, buffer);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  );
 
-  ipcMain.handle(ipcChannels.FILE_SAVE_AS, async () => {
-    const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
+  ipcMain.handle(ipcChannels.FILE_SAVE_AS, async (_event, providedName) => {
+    const win =
+      BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
 
     const { app } = require("electron");
-    const defaultName = Date.now().toString().slice(-5) + ".png";
+    const defaultName =
+      providedName || Date.now().toString().slice(-5) + ".png";
     const defaultPath = path.join(app.getPath("documents"), defaultName);
 
     const result = await dialog.showSaveDialog(win, {
@@ -90,15 +96,22 @@ function registerFileIpc() {
         return { error: "Only HTTP and HTTPS URLs are supported." };
       }
 
-      const mod = parsedUrl.protocol === "https:" ? require("https") : require("http");
+      const mod =
+        parsedUrl.protocol === "https:" ? require("https") : require("http");
 
       const data = await new Promise((resolve, reject) => {
         const req = mod.get(url, { timeout: 30000 }, (res) => {
-          if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          if (
+            res.statusCode >= 300 &&
+            res.statusCode < 400 &&
+            res.headers.location
+          ) {
             // Follow one redirect
-            mod.get(res.headers.location, { timeout: 30000 }, (res2) => {
-              handleResponse(res2, resolve, reject);
-            }).on("error", reject);
+            mod
+              .get(res.headers.location, { timeout: 30000 }, (res2) => {
+                handleResponse(res2, resolve, reject);
+              })
+              .on("error", reject);
             return;
           }
           handleResponse(res, resolve, reject);
@@ -122,10 +135,14 @@ function registerFileIpc() {
       return reject(new Error(`Server returned status ${res.statusCode}.`));
     }
 
-    const contentType = (res.headers["content-type"] || "").split(";")[0].trim();
+    const contentType = (res.headers["content-type"] || "")
+      .split(";")[0]
+      .trim();
     if (!contentType.startsWith("image/")) {
       res.resume();
-      return reject(new Error(`URL did not return an image (got ${contentType}).`));
+      return reject(
+        new Error(`URL did not return an image (got ${contentType}).`),
+      );
     }
 
     const chunks = [];

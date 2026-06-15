@@ -13,12 +13,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => ipcRenderer.invoke(ipcChannels.APP_VERSION),
 
   openFile: () => ipcRenderer.invoke(ipcChannels.FILE_OPEN),
-  openFileFromUrl: (url) =>
-    ipcRenderer.invoke(ipcChannels.FILE_OPEN_URL, url),
+  openFileFromUrl: (url) => ipcRenderer.invoke(ipcChannels.FILE_OPEN_URL, url),
   saveFile: (dataUrl, filePath) =>
     ipcRenderer.invoke(ipcChannels.FILE_SAVE, { dataUrl, filePath }),
   /** Shows save-as dialog only, returns { filePath, fileName } or null. */
-  saveFileAs: () => ipcRenderer.invoke(ipcChannels.FILE_SAVE_AS),
+  saveFileAs: (defaultName) =>
+    ipcRenderer.invoke(ipcChannels.FILE_SAVE_AS, defaultName),
 
   onMenuEvent: (callback) => {
     const listener = (_event, action) => callback(action);

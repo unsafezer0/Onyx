@@ -16,7 +16,8 @@ function getLayerBounds(l: any) {
       const c = document.createElement("canvas");
       _measureCtx = c.getContext("2d");
     }
-    if (!_measureCtx) return { w: l.text.length * l.fontSize * 0.6, h: l.fontSize };
+    if (!_measureCtx)
+      return { w: l.text.length * l.fontSize * 0.6, h: l.fontSize };
     _measureCtx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px "${l.fontFamily}", sans-serif`;
     return { w: _measureCtx.measureText(l.text).width, h: l.fontSize };
   }
@@ -25,18 +26,39 @@ function getLayerBounds(l: any) {
 
 export function useLayerDrag() {
   const { state, updateLayer, selectLayer, snapshotForUndo } = useEditor();
-  const [resizing, setResizing] = useState<{ id: string; handle: string } | null>(null);
+  const [resizing, setResizing] = useState<{
+    id: string;
+    handle: string;
+  } | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
-  const dragStart = useRef<{ x: number; y: number; layerX: number; layerY: number; layerW: number; layerH: number; xTargets?: number[]; yTargets?: number[]; } | null>(null);
+  const dragStart = useRef<{
+    x: number;
+    y: number;
+    layerX: number;
+    layerY: number;
+    layerW: number;
+    layerH: number;
+    xTargets?: number[];
+    yTargets?: number[];
+  } | null>(null);
 
   const hitTestLayer = useCallback(
-    (canvasX: number, canvasY: number): { id: string; handle?: string } | null => {
+    (
+      canvasX: number,
+      canvasY: number,
+    ): { id: string; handle?: string } | null => {
       // Check for resize handles on the selected layer first
       const selected = state.layers.find((l) => l.id === state.selectedLayerId);
       if (selected && selected.type === "image") {
         const hs = 15 / state.zoom; // hit size
-        const inRect = (px: number, py: number, rx: number, ry: number, s: number) => {
+        const inRect = (
+          px: number,
+          py: number,
+          rx: number,
+          ry: number,
+          s: number,
+        ) => {
           return px >= rx - s && px <= rx + s && py >= ry - s && py <= ry + s;
         };
         const sx = selected.x;
@@ -49,21 +71,29 @@ export function useLayerDrag() {
         const cx = selected.x + selected.width / 2;
         const cy = selected.y + selected.height / 2;
         const angle = (selected.rotation * Math.PI) / 180;
-        
+
         // Unrotate pointer for hit testing
         const dx = canvasX - cx;
         const dy = canvasY - cy;
         const localX = cx + (dx * Math.cos(-angle) - dy * Math.sin(-angle));
         const localY = cy + (dx * Math.sin(-angle) + dy * Math.cos(-angle));
 
-        if (inRect(localX, localY, sx, sy, hs)) return { id: selected.id, handle: "nw" };
-        if (inRect(localX, localY, midX, sy, hs)) return { id: selected.id, handle: "n" };
-        if (inRect(localX, localY, sx + sw, sy, hs)) return { id: selected.id, handle: "ne" };
-        if (inRect(localX, localY, sx, midY, hs)) return { id: selected.id, handle: "w" };
-        if (inRect(localX, localY, sx + sw, midY, hs)) return { id: selected.id, handle: "e" };
-        if (inRect(localX, localY, sx, sy + sh, hs)) return { id: selected.id, handle: "sw" };
-        if (inRect(localX, localY, midX, sy + sh, hs)) return { id: selected.id, handle: "s" };
-        if (inRect(localX, localY, sx + sw, sy + sh, hs)) return { id: selected.id, handle: "se" };
+        if (inRect(localX, localY, sx, sy, hs))
+          return { id: selected.id, handle: "nw" };
+        if (inRect(localX, localY, midX, sy, hs))
+          return { id: selected.id, handle: "n" };
+        if (inRect(localX, localY, sx + sw, sy, hs))
+          return { id: selected.id, handle: "ne" };
+        if (inRect(localX, localY, sx, midY, hs))
+          return { id: selected.id, handle: "w" };
+        if (inRect(localX, localY, sx + sw, midY, hs))
+          return { id: selected.id, handle: "e" };
+        if (inRect(localX, localY, sx, sy + sh, hs))
+          return { id: selected.id, handle: "sw" };
+        if (inRect(localX, localY, midX, sy + sh, hs))
+          return { id: selected.id, handle: "s" };
+        if (inRect(localX, localY, sx + sw, sy + sh, hs))
+          return { id: selected.id, handle: "se" };
       }
 
       // Check layers in reverse order (topmost first) for dragging
@@ -76,7 +106,7 @@ export function useLayerDrag() {
         const cx = l.x + approxWidth / 2;
         const cy = l.y + approxHeight / 2;
         const angle = (l.rotation * Math.PI) / 180;
-        
+
         const dx = canvasX - cx;
         const dy = canvasY - cy;
         const localX = cx + (dx * Math.cos(-angle) - dy * Math.sin(-angle));
@@ -105,7 +135,7 @@ export function useLayerDrag() {
         if (l) {
           // Snapshot for undo BEFORE the drag/resize begins
           snapshotForUndo();
-          
+
           let xTargets: number[] = [];
           let yTargets: number[] = [];
           if (state.image && !hit.handle) {
@@ -119,17 +149,17 @@ export function useLayerDrag() {
             }
           }
 
-          dragStart.current = { 
-            x: canvasX, 
-            y: canvasY, 
-            layerX: l.x, 
-            layerY: l.y, 
-            layerW: l.type === "image" ? l.width : 0, 
+          dragStart.current = {
+            x: canvasX,
+            y: canvasY,
+            layerX: l.x,
+            layerY: l.y,
+            layerW: l.type === "image" ? l.width : 0,
             layerH: l.type === "image" ? l.height : 0,
             xTargets,
-            yTargets
+            yTargets,
           };
-          
+
           if (hit.handle) {
             setResizing({ id: hit.id, handle: hit.handle });
           } else {
@@ -187,7 +217,12 @@ export function useLayerDrag() {
           newY = layerY + layerH - newH;
         }
 
-        updateLayer(resizing.id, { x: newX, y: newY, width: newW, height: newH });
+        updateLayer(resizing.id, {
+          x: newX,
+          y: newY,
+          width: newW,
+          height: newH,
+        });
         return true;
       }
 
@@ -196,11 +231,11 @@ export function useLayerDrag() {
         const dy = canvasY - dragStart.current.y;
         let newX = dragStart.current.layerX + dx;
         let newY = dragStart.current.layerY + dy;
-        
-        const layer = state.layers.find(l => l.id === dragging);
+
+        const layer = state.layers.find((l) => l.id === dragging);
         if (layer && state.image) {
           const { w: lW, h: lH } = getLayerBounds(layer);
-          
+
           const snapThreshold = 5 / state.zoom;
           const activeGuides: Guide[] = [];
 
@@ -217,7 +252,7 @@ export function useLayerDrag() {
             if (snappedX) break;
             for (const tx of xTargets) {
               if (Math.abs(mx - tx) < snapThreshold) {
-                newX += (tx - mx);
+                newX += tx - mx;
                 activeGuides.push({ axis: "x", position: tx });
                 snappedX = true;
                 break;
@@ -231,14 +266,14 @@ export function useLayerDrag() {
             if (snappedY) break;
             for (const ty of yTargets) {
               if (Math.abs(my - ty) < snapThreshold) {
-                newY += (ty - my);
+                newY += ty - my;
                 activeGuides.push({ axis: "y", position: ty });
                 snappedY = true;
                 break;
               }
             }
           }
-          
+
           setGuides(activeGuides);
         }
 
@@ -262,5 +297,12 @@ export function useLayerDrag() {
     return false;
   }, [dragging, resizing]);
 
-  return { dragging, guides, hitTestLayer, onPointerDown, onPointerMove, onPointerUp };
+  return {
+    dragging,
+    guides,
+    hitTestLayer,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+  };
 }

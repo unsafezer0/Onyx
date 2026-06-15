@@ -7,10 +7,22 @@ import {
   Image as ImageIcon,
 } from "@phosphor-icons/react";
 
-const tools: { id: Tool | "imageOverlay"; icon: React.ReactNode; label: string }[] = [
-  { id: "select", icon: <Cursor size={20} weight="duotone" />, label: "Select / Move" },
+const tools: {
+  id: Tool | "imageOverlay";
+  icon: React.ReactNode;
+  label: string;
+}[] = [
+  {
+    id: "select",
+    icon: <Cursor size={20} weight="duotone" />,
+    label: "Select / Move",
+  },
   { id: "text", icon: <TextT size={20} weight="duotone" />, label: "Text" },
-  { id: "imageOverlay", icon: <ImageIcon size={20} weight="duotone" />, label: "Image Overlay" },
+  {
+    id: "imageOverlay",
+    icon: <ImageIcon size={20} weight="duotone" />,
+    label: "Image Overlay",
+  },
   { id: "crop", icon: <Crop size={20} weight="duotone" />, label: "Crop" },
   { id: "pan", icon: <Hand size={20} weight="duotone" />, label: "Pan" },
 ];
@@ -47,7 +59,10 @@ export default function Toolbar() {
       {tools.map(({ id, icon, label }) => {
         if (id === "imageOverlay") {
           return (
-            <div key={id} className="group relative flex items-center justify-center">
+            <div
+              key={id}
+              className="group relative flex items-center justify-center"
+            >
               <button
                 onClick={handleAddImageOverlay}
                 disabled={!state.image}
@@ -63,7 +78,10 @@ export default function Toolbar() {
         }
 
         return (
-          <div key={id} className="group relative flex items-center justify-center">
+          <div
+            key={id}
+            className="group relative flex items-center justify-center"
+          >
             <button
               onClick={() => handleToolClick(id as Tool)}
               className={`flex h-10 w-10 items-center justify-center rounded-lg transition-all duration-150 ${

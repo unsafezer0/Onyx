@@ -1,7 +1,5 @@
 import type { Layer, TextLayer, ImageLayer } from "../context/EditorContext";
 
-
-
 export interface OverlayImageEntry {
   url: string;
   img: HTMLImageElement;
@@ -13,7 +11,10 @@ export type OverlayImageCache = Map<string, OverlayImageEntry>;
  * Removes entries from the overlay cache whose layer IDs are no longer active.
  * Prevents memory leaks when layers are deleted.
  */
-export function pruneOverlayCache(cache: OverlayImageCache, activeLayerIds: Set<string>): void {
+export function pruneOverlayCache(
+  cache: OverlayImageCache,
+  activeLayerIds: Set<string>,
+): void {
   for (const key of cache.keys()) {
     if (!activeLayerIds.has(key)) {
       cache.delete(key);
@@ -21,15 +22,15 @@ export function pruneOverlayCache(cache: OverlayImageCache, activeLayerIds: Set<
   }
 }
 
-
-
 let cachedPattern: CanvasPattern | null = null;
 
 /**
  * Returns a reusable checkerboard CanvasPattern.
  * The pattern is created once and cached for the lifetime of the session.
  */
-export function getCheckerboardPattern(ctx: CanvasRenderingContext2D): CanvasPattern {
+export function getCheckerboardPattern(
+  ctx: CanvasRenderingContext2D,
+): CanvasPattern {
   if (cachedPattern) return cachedPattern;
 
   const size = 12;
@@ -47,8 +48,6 @@ export function getCheckerboardPattern(ctx: CanvasRenderingContext2D): CanvasPat
   cachedPattern = ctx.createPattern(tile, "repeat")!;
   return cachedPattern;
 }
-
-
 
 export interface RenderLayersOptions {
   /** When set, draws selection outlines on the matching layer. */
@@ -76,22 +75,44 @@ export function renderLayers(
   for (const l of layers) {
     if (!l.visible) continue;
     ctx.save();
-    ctx.translate(l.x, l.y);
+
+    let w = 0;
+    let h = 0;
+    if (l.type === "image") {
+      w = l.width;
+      h = l.height;
+    } else if (l.type === "text") {
+      ctx.font = `${l.italic ? "italic " : ""}${l.bold ? "bold " : ""}${l.fontSize}px "${l.fontFamily}", sans-serif`;
+      w = ctx.measureText(l.text).width;
+      h = l.fontSize;
+    }
+
+    const cx = l.x + w / 2;
+    const cy = l.y + h / 2;
+
+    ctx.translate(cx, cy);
     if (l.rotation) ctx.rotate((l.rotation * Math.PI) / 180);
+    ctx.translate(-w / 2, -h / 2);
+
     ctx.globalAlpha = l.opacity;
+    ctx.globalCompositeOperation = l.blendMode ?? "source-over";
 
     if (l.type === "text") {
       renderTextLayer(ctx, l, { selectedLayerId, zoom, primaryColor });
     } else if (l.type === "image") {
-      renderImageLayer(ctx, l, overlayCache, { selectedLayerId, zoom, primaryColor, onImageLoad });
+      renderImageLayer(ctx, l, overlayCache, {
+        selectedLayerId,
+        zoom,
+        primaryColor,
+        onImageLoad,
+      });
     }
 
     ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
     ctx.restore();
   }
 }
-
-
 
 function renderTextLayer(
   ctx: CanvasRenderingContext2D,
@@ -136,8 +157,6 @@ function renderTextLayer(
     ctx.setLineDash([]);
   }
 }
-
-
 
 function renderImageLayer(
   ctx: CanvasRenderingContext2D,
@@ -199,12 +218,13 @@ function renderImageLayer(
   }
 }
 
-
-
 /**
  * Derives a MIME type and quality from a file extension.
  */
-export function formatFromExtension(ext: string): { mime: string; quality: number } {
+export function formatFromExtension(ext: string): {
+  mime: string;
+  quality: number;
+} {
   switch (ext.toLowerCase()) {
     case "jpg":
     case "jpeg":
@@ -214,4 +234,48 @@ export function formatFromExtension(ext: string): { mime: string; quality: numbe
     default:
       return { mime: "image/png", quality: 1.0 };
   }
+}
+
+/**
+ * Automatically resizes an image if it exceeds the specified maximum dimensions,
+ * maintaining the original aspect ratio.
+ */
+export async function resizeImageIfTooLarge(
+  dataUrl: string,
+  maxWidth = 1920,
+  maxHeight = 1080,
+): Promise<{ dataUrl: string; width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.naturalWidth;
+      let h = img.naturalHeight;
+
+      if (w > maxWidth || h > maxHeight) {
+        const scale = Math.min(maxWidth / w, maxHeight / h);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = "high";
+          ctx.drawImage(img, 0, 0, w, h);
+          resolve({
+            dataUrl: canvas.toDataURL("image/jpeg", 0.95),
+            width: w,
+            height: h,
+          });
+          return;
+        }
+      }
+
+      resolve({ dataUrl, width: w, height: h });
+    };
+    img.onerror = () => reject(new Error("Failed to load image for resizing"));
+    img.src = dataUrl;
+  });
 }

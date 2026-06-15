@@ -12,7 +12,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks(id: string) {
-          if (id.includes("node_modules/react-dom") || id.includes("node_modules/react/")) {
+          if (
+            id.includes("node_modules/react-dom") ||
+            id.includes("node_modules/react/")
+          ) {
             return "vendor-react";
           }
           if (id.includes("node_modules/@phosphor-icons")) {

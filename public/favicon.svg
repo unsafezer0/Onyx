@@ -1,30 +1,53 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
   <defs>
-    <!-- The clip path is in the local coordinate system of the translated group -->
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512">
+      <stop offset="0%" stop-color="#1f1f1d" />
+      <stop offset="100%" stop-color="#0d0d0c" />
+    </linearGradient>
+
+    <!-- Drop shadow for the inner blades -->
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="12" stdDeviation="16" flood-color="#000" flood-opacity="0.45" />
+    </filter>
+
     <clipPath id="aperture-clip">
       <circle cx="0" cy="0" r="180" />
     </clipPath>
   </defs>
 
-  <rect width="512" height="512" rx="112" fill="#262624" />
+  <!-- Background -->
+  <rect width="512" height="512" rx="128" fill="url(#bg)" />
 
   <!-- Outermost accent ring -->
-  <circle cx="256" cy="256" r="215" fill="none" stroke="#d97757" stroke-width="8" opacity="0.5" />
+  <circle cx="256" cy="256" r="224" fill="none" stroke="#eb6b47" stroke-width="4" opacity="0.4" stroke-dasharray="8 12" />
   
-  <!-- Main ring (lightened to contrast with dark background) -->
-  <circle cx="256" cy="256" r="195" fill="none" stroke="#faf9f5" stroke-width="40" />
+  <!-- Main ring -->
+  <circle cx="256" cy="256" r="195" fill="none" stroke="#faf9f5" stroke-width="32" filter="url(#shadow)" />
+
+  <!-- Center Camera Icon -->
+  <g transform="translate(196, 214)" filter="url(#shadow)">
+    <!-- Flash Top Unit -->
+    <path d="M 36,0 L 46,-16 L 74,-16 L 84,0 Z" fill="#faf9f5" />
+    <!-- Camera Body -->
+    <rect width="120" height="84" rx="16" fill="#faf9f5" />
+    <!-- Outer Lens -->
+    <circle cx="60" cy="42" r="26" fill="#1f1f1d" />
+    <!-- Inner Lens (Cyan reflection) -->
+    <circle cx="60" cy="42" r="14" fill="#3f99c2" />
+    <!-- Lens Highlight -->
+    <circle cx="64" cy="38" r="4" fill="#ffffff" opacity="0.9" />
+    <!-- Small Flash/Sensor -->
+    <circle cx="100" cy="24" r="6" fill="#1f1f1d" />
+  </g>
 
   <!-- Aperture Blades -->
-  <g transform="translate(256, 256)" clip-path="url(#aperture-clip)">
-    <!-- 
-      P1 = (40, 69.282)
-      Triangle spanning far outside the r=180 circle 
-    -->
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#d97757" stroke="#d97757" stroke-width="1" />
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#e8a855" stroke="#e8a855" stroke-width="1" transform="rotate(60)" />
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#619e66" stroke="#619e66" stroke-width="1" transform="rotate(120)" />
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#4988a8" stroke="#4988a8" stroke-width="1" transform="rotate(180)" />
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#5e548c" stroke="#5e548c" stroke-width="1" transform="rotate(240)" />
-    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#a8546f" stroke="#a8546f" stroke-width="1" transform="rotate(300)" />
+  <g transform="translate(256, 256)" clip-path="url(#aperture-clip)" filter="url(#shadow)">
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#eb6b47" stroke="#eb6b47" stroke-width="1" />
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#f5aa42" stroke="#f5aa42" stroke-width="1" transform="rotate(60)" />
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#50ad58" stroke="#50ad58" stroke-width="1" transform="rotate(120)" />
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#3f99c2" stroke="#3f99c2" stroke-width="1" transform="rotate(180)" />
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#6959a8" stroke="#6959a8" stroke-width="1" transform="rotate(240)" />
+    <polygon points="40,69.282 500,-727.468 500,69.282" fill="#c74c76" stroke="#c74c76" stroke-width="1" transform="rotate(300)" />
   </g>
 </svg>

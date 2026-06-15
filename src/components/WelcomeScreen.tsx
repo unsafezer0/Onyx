@@ -14,7 +14,10 @@ export default function WelcomeScreen() {
 
       const file = e.dataTransfer.files[0];
       if (!file) return;
-      if (!file.type.startsWith("image/") && !file.name.match(/\.(png|jpe?g|webp|bmp|gif)$/i)) {
+      if (
+        !file.type.startsWith("image/") &&
+        !file.name.match(/\.(png|jpe?g|webp|bmp|gif)$/i)
+      ) {
         return;
       }
 
@@ -53,7 +56,11 @@ export default function WelcomeScreen() {
         <div className="relative">
           <div className="welcome-icon-glow absolute -inset-4 rounded-full opacity-0 blur-2xl transition-opacity duration-500 group-hover:opacity-40 bg-primary" />
           <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl bg-primary shadow-lg shadow-primary/20">
-            <ImageSquare size={40} weight="duotone" className="text-primary-foreground" />
+            <ImageSquare
+              size={40}
+              weight="duotone"
+              className="text-primary-foreground"
+            />
           </div>
         </div>
 
@@ -88,8 +95,10 @@ export default function WelcomeScreen() {
         </p>
       </div>
 
-      <UrlImportDialog open={showUrlDialog} onClose={() => setShowUrlDialog(false)} />
+      <UrlImportDialog
+        open={showUrlDialog}
+        onClose={() => setShowUrlDialog(false)}
+      />
     </div>
   );
 }
-

@@ -2,7 +2,7 @@
 
 > A modern, sleek desktop image editor built with React, Vite, and Electron.
 
-[![Version](https://img.shields.io/badge/version-1.1.1-blue.svg)](https://github.com/unsafezer0/onyx/releases)
+[![Version](https://img.shields.io/badge/version-1.1.2-blue.svg)](https://github.com/unsafezer0/onyx/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Features
@@ -15,8 +15,10 @@
 - **Smart Alignment & Snapping**: Magnetic snapping to canvas edges, center, and other layers with visual guides.
 - **Auto-Save & Session Restore**: Never lose your progress. Your canvas automatically saves in the background and restores when you open Onyx.
 - **Advanced Editing**: Non-destructive cropping, background replacement, and 8-handle freeform layer resizing.
-- **Pixel-Perfect Canvas**: Smooth panning with zoom support and maximum-quality lossless exporting.
-- **Keyboard Controls**: Full undo/redo stack (Ctrl+Z / Ctrl+Y), saving (Ctrl+S), and arrow-key layer nudging.
+- **Advanced Layer Styling**: Apply standard blending modes (Multiply, Screen, Overlay, etc.) for professional composition.
+- **Performance Optimized**: Automatic background downscaling preserves aspect ratios on large 4K+ images for buttery-smooth editing.
+- **Pixel-Perfect Canvas**: Smooth panning with zoom support and maximum-quality exporting (PNG, JPEG, WebP).
+- **Pro Keyboard Controls**: Full undo/redo stack (Ctrl+Z/Ctrl+Y), saving (Ctrl+S), exporting (Ctrl+E), opening (Ctrl+O), and quick layer deletion (Delete/Backspace).
 
 ## Development
 

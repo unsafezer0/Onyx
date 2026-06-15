@@ -5,12 +5,18 @@ export function useLayerCrop() {
   const { state, setLayerCrop } = useEditor();
   const [isDragging, setIsDragging] = useState(false);
   const [dragHandle, setDragHandle] = useState<string | null>(null);
-  const startRef = useRef<{ x: number; y: number; crop: typeof state.layerCrop } | null>(null);
+  const startRef = useRef<{
+    x: number;
+    y: number;
+    crop: typeof state.layerCrop;
+  } | null>(null);
 
   const constrainToImage = useCallback(
     (x: number, y: number, w: number, h: number) => {
       // The constraints are relative to the layer's original width and height!
-      const selected = state.layers.find((l) => l.id === state.selectedLayerId) as ImageLayer;
+      const selected = state.layers.find(
+        (l) => l.id === state.selectedLayerId,
+      ) as ImageLayer;
       if (!selected) return { x, y, width: w, height: h };
 
       // Since x, y are absolute positions on the canvas, we should let them move freely
@@ -27,7 +33,11 @@ export function useLayerCrop() {
     (canvasX: number, canvasY: number, handle: string | null) => {
       setIsDragging(true);
       setDragHandle(handle);
-      startRef.current = { x: canvasX, y: canvasY, crop: { ...state.layerCrop } };
+      startRef.current = {
+        x: canvasX,
+        y: canvasY,
+        crop: { ...state.layerCrop },
+      };
     },
     [state.layerCrop],
   );
@@ -71,8 +81,12 @@ export function useLayerCrop() {
           newH = prev.height + dy;
         }
 
-        if (newW < 5) { newW = 5; }
-        if (newH < 5) { newH = 5; }
+        if (newW < 5) {
+          newW = 5;
+        }
+        if (newH < 5) {
+          newH = 5;
+        }
 
         const constrained = constrainToImage(newX, newY, newW, newH);
         setLayerCrop(constrained);

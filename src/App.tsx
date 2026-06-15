@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef } from "react";
+import { useEffect, useCallback, useRef, useState } from "react";
 import { ThemeContext, useThemeProvider } from "./hooks/useTheme";
 import { EditorProvider, useEditor } from "./context/EditorContext";
 import { formatFromExtension } from "./utils/renderUtils";
@@ -7,6 +7,7 @@ import WelcomeScreen from "./components/WelcomeScreen";
 import Canvas from "./components/Canvas";
 import Toolbar from "./components/Toolbar";
 import PropertiesPanel from "./components/PropertiesPanel";
+import ExportDialog from "./components/ExportDialog";
 
 function App() {
   const themeCtx = useThemeProvider();
@@ -50,7 +51,9 @@ function EditorLayout() {
 }
 
 function MenuEventHandler() {
-  const { dispatch, undo, redo, state, openImage, canvasActionsRef } = useEditor();
+  const { dispatch, undo, redo, state, openImage, canvasActionsRef } =
+    useEditor();
+  const [showExportDialog, setShowExportDialog] = useState(false);
 
   const handleSaveAs = useCallback(async () => {
     const actions = canvasActionsRef.current;
@@ -112,30 +115,37 @@ function MenuEventHandler() {
     }
   }, [state.image, dispatch, canvasActionsRef, handleSaveAs]);
 
-  const handleAction = useCallback((action: string) => {
-    switch (action) {
-      case "open":
-        openImage();
-        break;
-      case "save":
-        handleSave();
-        break;
-      case "save-as":
-      case "export":
-        handleSaveAs();
-        break;
-      case "undo":
-        undo();
-        break;
-      case "redo":
-        redo();
-        break;
-    }
-  }, [openImage, handleSave, handleSaveAs, undo, redo]);
+  const handleAction = useCallback(
+    (action: string) => {
+      switch (action) {
+        case "open":
+          openImage();
+          break;
+        case "save":
+          handleSave();
+          break;
+        case "save-as":
+          handleSaveAs();
+          break;
+        case "export":
+          setShowExportDialog(true);
+          break;
+        case "undo":
+          undo();
+          break;
+        case "redo":
+          redo();
+          break;
+      }
+    },
+    [openImage, handleSave, handleSaveAs, undo, redo],
+  );
 
   useEffect(() => {
     // Listen for Electron menu events (keyboard shortcuts)
-    const cleanup = window.electronAPI?.onMenuEvent((action: string) => handleAction(action));
+    const cleanup = window.electronAPI?.onMenuEvent((action: string) =>
+      handleAction(action),
+    );
 
     // Listen for custom DOM events from Header buttons
     const domHandler = (e: Event) => handleAction((e as CustomEvent).detail);
@@ -147,11 +157,64 @@ function MenuEventHandler() {
     };
   }, [handleAction]);
 
-  return null;
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (
+        document.activeElement?.tagName === "INPUT" ||
+        document.activeElement?.tagName === "TEXTAREA"
+      ) {
+        return;
+      }
+
+      const cmdOrCtrl = e.ctrlKey || e.metaKey;
+      if (!cmdOrCtrl) return;
+
+      switch (e.key.toLowerCase()) {
+        case "o":
+          e.preventDefault();
+          handleAction("open");
+          break;
+        case "s":
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleAction("save-as");
+          } else {
+            handleAction("save");
+          }
+          break;
+        case "e":
+          e.preventDefault();
+          handleAction("export");
+          break;
+        case "z":
+          e.preventDefault();
+          if (e.shiftKey) {
+            handleAction("redo");
+          } else {
+            handleAction("undo");
+          }
+          break;
+        case "y":
+          e.preventDefault();
+          handleAction("redo");
+          break;
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, [handleAction]);
+
+  return (
+    <ExportDialog
+      open={showExportDialog}
+      onClose={() => setShowExportDialog(false)}
+    />
+  );
 }
 
 function KeyboardEventHandler() {
-  const { state, updateLayer, snapshotForUndo } = useEditor();
+  const { state, updateLayer, snapshotForUndo, removeLayer } = useEditor();
 
   // Store in refs to avoid re-subscribing the keydown listener on every frame during drag.
   const layersRef = useRef(state.layers);
@@ -199,6 +262,12 @@ function KeyboardEventHandler() {
         case "ArrowRight":
           dx = step;
           break;
+        case "Delete":
+        case "Backspace":
+          e.preventDefault();
+          snapshotForUndo();
+          removeLayer(layer.id);
+          return;
         default:
           return;
       }
@@ -221,7 +290,7 @@ function KeyboardEventHandler() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [updateLayer, snapshotForUndo]); // stable deps only
+  }, [updateLayer, snapshotForUndo, removeLayer]); // stable deps only
 
   return null;
 }

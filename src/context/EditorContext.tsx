@@ -1,7 +1,16 @@
-import { createContext, useContext, useReducer, useCallback, useRef, useMemo, useState, useEffect, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useReducer,
+  useCallback,
+  useRef,
+  useMemo,
+  useState,
+  useEffect,
+  type ReactNode,
+} from "react";
 import { set, get, del } from "idb-keyval";
-
-
+import { resizeImageIfTooLarge } from "../utils/renderUtils";
 
 export interface LayerBase {
   id: string;
@@ -11,6 +20,7 @@ export interface LayerBase {
   rotation: number;
   opacity: number;
   visible: boolean;
+  blendMode: GlobalCompositeOperation;
 }
 
 export interface TextLayer extends LayerBase {
@@ -42,8 +52,6 @@ export interface ImageLayer extends LayerBase {
 
 export type Layer = TextLayer | ImageLayer;
 
-
-
 export interface FilterState {
   brightness: number;
   contrast: number;
@@ -73,8 +81,6 @@ export interface ImageInfo {
   filePath: string | null;
   fileName: string;
 }
-
-
 
 export interface EditorState {
   image: ImageInfo | null;
@@ -124,8 +130,6 @@ const initialState: EditorState = {
   isDirty: false,
 };
 
-
-
 type EditorAction =
   | { type: "LOAD_IMAGE"; payload: ImageInfo }
   | { type: "REPLACE_BACKGROUND"; payload: ImageInfo }
@@ -140,7 +144,10 @@ type EditorAction =
   | { type: "RESET_FILTERS" }
   | { type: "SET_CROP"; payload: Partial<CropState> }
   | { type: "START_CROP" }
-  | { type: "APPLY_CROP"; payload: { dataUrl: string; width: number; height: number } }
+  | {
+      type: "APPLY_CROP";
+      payload: { dataUrl: string; width: number; height: number };
+    }
   | { type: "CANCEL_CROP" }
   | { type: "START_LAYER_CROP" }
   | { type: "SET_LAYER_CROP"; payload: Partial<CropState> }
@@ -149,8 +156,6 @@ type EditorAction =
   | { type: "SET_PAN"; payload: { x: number; y: number } }
   | { type: "MARK_SAVED" }
   | { type: "RESTORE_STATE"; payload: EditorState };
-
-
 
 function editorReducer(state: EditorState, action: EditorAction): EditorState {
   switch (action.type) {
@@ -178,7 +183,8 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         ...state,
         activeTool: action.payload,
         crop: action.payload !== "crop" ? { ...defaultCrop } : state.crop,
-        layerCrop: action.payload !== "cropLayer" ? { ...defaultCrop } : state.layerCrop,
+        layerCrop:
+          action.payload !== "cropLayer" ? { ...defaultCrop } : state.layerCrop,
       };
 
     case "ADD_LAYER":
@@ -193,7 +199,9 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
       return {
         ...state,
         layers: state.layers.map((t) =>
-          t.id === action.payload.id ? { ...t, ...action.payload.changes } as Layer : t,
+          t.id === action.payload.id
+            ? ({ ...t, ...action.payload.changes } as Layer)
+            : t,
         ),
         isDirty: true,
       };
@@ -203,7 +211,9 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
         ...state,
         layers: state.layers.filter((t) => t.id !== action.payload),
         selectedLayerId:
-          state.selectedLayerId === action.payload ? null : state.selectedLayerId,
+          state.selectedLayerId === action.payload
+            ? null
+            : state.selectedLayerId,
         isDirty: true,
       };
 
@@ -325,24 +335,27 @@ function editorReducer(state: EditorState, action: EditorAction): EditorState {
   }
 }
 
-
-
 export interface CanvasActions {
   exportImage: (format?: string, quality?: number) => string | null;
   applyCrop: () => void;
   applyLayerCrop: () => void;
 }
 
-
-
 interface EditorContextValue {
   state: EditorState;
   dispatch: React.Dispatch<EditorAction>;
   loadImage: (info: ImageInfo) => void;
   openImage: () => Promise<void>;
-  openImageFromUrl: (url: string) => Promise<{ success: boolean; error?: string }>;
+  openImageFromUrl: (
+    url: string,
+  ) => Promise<{ success: boolean; error?: string }>;
   addText: (overrides?: Partial<TextLayer>) => void;
-  addImageOverlay: (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => void;
+  addImageOverlay: (
+    dataUrl: string,
+    width: number,
+    height: number,
+    overrides?: Partial<ImageLayer>,
+  ) => void;
   updateLayer: (id: string, changes: Partial<Layer>) => void;
   removeLayer: (id: string) => void;
   reorderLayer: (startIndex: number, endIndex: number) => void;
@@ -370,16 +383,12 @@ interface EditorContextValue {
 
 const EditorContext = createContext<EditorContextValue | null>(null);
 
-
-
 let idCounter = 0;
 function generateId(prefix: string): string {
   return `${prefix}_${Date.now()}_${++idCounter}`;
 }
 
-
-
-const MAX_HISTORY = 20;
+const maxHistory = 20;
 
 /**
  * Blob deduplication for undo history.
@@ -441,7 +450,10 @@ function internSnapshot(store: BlobStore, state: EditorState): EditorState {
     : null;
   const layers = state.layers.map((l) => {
     if (l.type === "image") {
-      return { ...l, dataUrl: internBlob(store, (l as ImageLayer).dataUrl) } as Layer;
+      return {
+        ...l,
+        dataUrl: internBlob(store, (l as ImageLayer).dataUrl),
+      } as Layer;
     }
     return l;
   });
@@ -454,7 +466,10 @@ function resolveSnapshot(store: BlobStore, snapshot: EditorState): EditorState {
     : null;
   const layers = snapshot.layers.map((l) => {
     if (l.type === "image") {
-      return { ...l, dataUrl: resolveBlob(store, (l as ImageLayer).dataUrl) } as Layer;
+      return {
+        ...l,
+        dataUrl: resolveBlob(store, (l as ImageLayer).dataUrl),
+      } as Layer;
     }
     return l;
   });
@@ -480,15 +495,19 @@ export function EditorProvider({ children }: { children: ReactNode }) {
 
   // Ref to current state — allows callbacks to read latest state without dep churn.
   const stateRef = useRef(state);
-  useEffect(() => { stateRef.current = state; });
+  useEffect(() => {
+    stateRef.current = state;
+  });
 
   // Auto-restore session on mount
   useEffect(() => {
-    get<EditorState>("onyx-session").then((savedState) => {
-      if (savedState && savedState.image) {
-        dispatch({ type: "RESTORE_STATE", payload: savedState });
-      }
-    }).catch(console.error);
+    get<EditorState>("onyx-session")
+      .then((savedState) => {
+        if (savedState && savedState.image) {
+          dispatch({ type: "RESTORE_STATE", payload: savedState });
+        }
+      })
+      .catch(console.error);
   }, []);
 
   // Auto-save session on changes (debounced)
@@ -513,7 +532,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const store = blobStoreRef.current;
     const interned = internSnapshot(store, stateRef.current);
     // Evict oldest snapshot if at capacity
-    if (h.past.length >= MAX_HISTORY) {
+    if (h.past.length >= maxHistory) {
       const evicted = h.past.shift();
       if (evicted) releaseBlobs(store, evicted);
     }
@@ -537,21 +556,22 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     [syncHistoryFlags],
   );
 
-  /** DRY: single implementation for opening a file via Electron IPC. */
   const openImage = useCallback(async () => {
     const result = await window.electronAPI?.openFile();
     if (!result) return;
-    const img = new Image();
-    img.onload = () => {
+
+    try {
+      const resized = await resizeImageIfTooLarge(result.dataUrl);
       loadImage({
-        dataUrl: result.dataUrl,
-        width: img.naturalWidth,
-        height: img.naturalHeight,
+        dataUrl: resized.dataUrl,
+        width: resized.width,
+        height: resized.height,
         filePath: result.filePath,
         fileName: result.fileName,
       });
-    };
-    img.src = result.dataUrl;
+    } catch (e) {
+      console.error("Failed to load image", e);
+    }
   }, [loadImage]);
 
   const openImageFromUrl = useCallback(
@@ -563,17 +583,25 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         if (window.electronAPI?.openFileFromUrl) {
           // Electron path: IPC to main process
           const result = await window.electronAPI.openFileFromUrl(url);
-          if (!result) return { success: false, error: "Request was cancelled." };
+          if (!result)
+            return { success: false, error: "Request was cancelled." };
           if ("error" in result) return { success: false, error: result.error };
           dataUrl = result.dataUrl;
           fileName = result.fileName;
         } else {
           // Web fallback: fetch via browser
           const res = await fetch(url);
-          if (!res.ok) return { success: false, error: `Server returned status ${res.status}.` };
+          if (!res.ok)
+            return {
+              success: false,
+              error: `Server returned status ${res.status}.`,
+            };
           const contentType = res.headers.get("content-type") || "";
           if (!contentType.startsWith("image/")) {
-            return { success: false, error: `URL did not return an image (got ${contentType}).` };
+            return {
+              success: false,
+              error: `URL did not return an image (got ${contentType}).`,
+            };
           }
           const blob = await res.blob();
           dataUrl = await new Promise<string>((resolve, reject) => {
@@ -592,22 +620,29 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         }
 
         return new Promise((resolve) => {
-          const img = new Image();
-          img.onload = () => {
-            loadImage({
-              dataUrl,
-              width: img.naturalWidth,
-              height: img.naturalHeight,
-              filePath: null,
-              fileName,
+          resizeImageIfTooLarge(dataUrl)
+            .then((resized) => {
+              loadImage({
+                dataUrl: resized.dataUrl,
+                width: resized.width,
+                height: resized.height,
+                filePath: null,
+                fileName,
+              });
+              resolve({ success: true });
+            })
+            .catch(() => {
+              resolve({
+                success: false,
+                error: "Failed to decode image data.",
+              });
             });
-            resolve({ success: true });
-          };
-          img.onerror = () => resolve({ success: false, error: "Failed to decode image data." });
-          img.src = dataUrl;
         });
       } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to fetch image from URL.";
+        const msg =
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch image from URL.";
         return { success: false, error: msg };
       }
     },
@@ -632,6 +667,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         rotation: 0,
         opacity: 1,
         visible: true,
+        blendMode: "source-over",
         strokeColor: "",
         strokeWidth: 0,
         backgroundColor: "",
@@ -643,7 +679,12 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
 
   const addImageOverlay = useCallback(
-    (dataUrl: string, width: number, height: number, overrides?: Partial<ImageLayer>) => {
+    (
+      dataUrl: string,
+      width: number,
+      height: number,
+      overrides?: Partial<ImageLayer>,
+    ) => {
       snapshotForUndo();
       const img = stateRef.current.image;
       const newImage: ImageLayer = {
@@ -657,6 +698,7 @@ export function EditorProvider({ children }: { children: ReactNode }) {
         rotation: 0,
         opacity: 1,
         visible: true,
+        blendMode: "source-over",
         ...overrides,
       };
       dispatch({ type: "ADD_LAYER", payload: newImage });
@@ -664,12 +706,9 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     [snapshotForUndo],
   );
 
-  const updateLayer = useCallback(
-    (id: string, changes: Partial<Layer>) => {
-      dispatch({ type: "UPDATE_LAYER", payload: { id, changes } });
-    },
-    [],
-  );
+  const updateLayer = useCallback((id: string, changes: Partial<Layer>) => {
+    dispatch({ type: "UPDATE_LAYER", payload: { id, changes } });
+  }, []);
 
   const removeLayer = useCallback(
     (id: string) => {
@@ -736,11 +775,15 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   }, [snapshotForUndo]);
 
   const setLayerCrop = useCallback(
-    (changes: Partial<CropState>) => dispatch({ type: "SET_LAYER_CROP", payload: changes }),
+    (changes: Partial<CropState>) =>
+      dispatch({ type: "SET_LAYER_CROP", payload: changes }),
     [],
   );
 
-  const cancelLayerCrop = useCallback(() => dispatch({ type: "CANCEL_LAYER_CROP" }), []);
+  const cancelLayerCrop = useCallback(
+    () => dispatch({ type: "CANCEL_LAYER_CROP" }),
+    [],
+  );
 
   const undo = useCallback(() => {
     const h = historyRef.current;
@@ -752,7 +795,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const currentInterned = internSnapshot(store, stateRef.current);
     h.future = [currentInterned, ...h.future];
     syncHistoryFlags();
-    dispatch({ type: "RESTORE_STATE", payload: resolveSnapshot(store, interned) });
+    dispatch({
+      type: "RESTORE_STATE",
+      payload: resolveSnapshot(store, interned),
+    });
     // Release blobs from the snapshot we just resolved (they're now live in state)
     releaseBlobs(store, interned);
   }, [syncHistoryFlags]);
@@ -767,7 +813,10 @@ export function EditorProvider({ children }: { children: ReactNode }) {
     const currentInterned = internSnapshot(store, stateRef.current);
     h.past = [...h.past, currentInterned];
     syncHistoryFlags();
-    dispatch({ type: "RESTORE_STATE", payload: resolveSnapshot(store, interned) });
+    dispatch({
+      type: "RESTORE_STATE",
+      payload: resolveSnapshot(store, interned),
+    });
     releaseBlobs(store, interned);
   }, [syncHistoryFlags]);
 
@@ -837,15 +886,11 @@ export function EditorProvider({ children }: { children: ReactNode }) {
   );
 }
 
-
-
 export function useEditor(): EditorContextValue {
   const ctx = useContext(EditorContext);
   if (!ctx) throw new Error("useEditor must be used within EditorProvider");
   return ctx;
 }
-
-
 
 export function buildFilterString(filters: FilterState): string {
   if (
@@ -862,13 +907,16 @@ export function buildFilterString(filters: FilterState): string {
   }
 
   const parts: string[] = [];
-  if (filters.brightness !== 100) parts.push(`brightness(${filters.brightness}%)`);
+  if (filters.brightness !== 100)
+    parts.push(`brightness(${filters.brightness}%)`);
   if (filters.contrast !== 100) parts.push(`contrast(${filters.contrast}%)`);
-  if (filters.saturation !== 100) parts.push(`saturate(${filters.saturation}%)`);
+  if (filters.saturation !== 100)
+    parts.push(`saturate(${filters.saturation}%)`);
   if (filters.blur > 0) parts.push(`blur(${filters.blur}px)`);
   if (filters.grayscale > 0) parts.push(`grayscale(${filters.grayscale}%)`);
   if (filters.sepia > 0) parts.push(`sepia(${filters.sepia}%)`);
   if (filters.invert > 0) parts.push(`invert(${filters.invert}%)`);
-  if (filters.hueRotate !== 0) parts.push(`hue-rotate(${filters.hueRotate}deg)`);
+  if (filters.hueRotate !== 0)
+    parts.push(`hue-rotate(${filters.hueRotate}deg)`);
   return parts.length > 0 ? parts.join(" ") : "none";
 }

@@ -5,7 +5,11 @@ export function useCrop() {
   const { state, dispatch } = useEditor();
   const [isDragging, setIsDragging] = useState(false);
   const [dragHandle, setDragHandle] = useState<string | null>(null);
-  const startRef = useRef<{ x: number; y: number; crop: typeof state.crop } | null>(null);
+  const startRef = useRef<{
+    x: number;
+    y: number;
+    crop: typeof state.crop;
+  } | null>(null);
 
   const setCrop = useCallback(
     (changes: Partial<typeof state.crop>) => {
@@ -75,8 +79,12 @@ export function useCrop() {
           newH = prev.height + dy;
         }
 
-        if (newW < 20) { newW = 20; }
-        if (newH < 20) { newH = 20; }
+        if (newW < 20) {
+          newW = 20;
+        }
+        if (newH < 20) {
+          newH = 20;
+        }
 
         const constrained = constrainToImage(newX, newY, newW, newH);
         setCrop(constrained);

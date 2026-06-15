@@ -1,10 +1,26 @@
 import { useState, useRef, useEffect } from "react";
 
 const colorSwatches = [
-  "#ffffff", "#000000", "#ef4444", "#f97316", "#eab308",
-  "#22c55e", "#06b6d4", "#3b82f6", "#8b5cf6", "#ec4899",
-  "#f43f5e", "#14b8a6", "#6366f1", "#a855f7", "#d946ef",
-  "#fbbf24", "#34d399", "#60a5fa", "#c084fc", "#fb7185",
+  "#ffffff",
+  "#000000",
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#06b6d4",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
+  "#f43f5e",
+  "#14b8a6",
+  "#6366f1",
+  "#a855f7",
+  "#d946ef",
+  "#fbbf24",
+  "#34d399",
+  "#60a5fa",
+  "#c084fc",
+  "#fb7185",
 ];
 
 interface ColorPickerProps {
@@ -58,9 +74,14 @@ export default function ColorPicker({ value, onChange }: ColorPickerProps) {
             {colorSwatches.map((c) => (
               <button
                 key={c}
-                onClick={() => { onChange(c); setHex(c); }}
+                onClick={() => {
+                  onChange(c);
+                  setHex(c);
+                }}
                 className={`h-6 w-6 rounded-md border transition-transform hover:scale-110 ${
-                  value === c ? "border-primary ring-1 ring-primary" : "border-border/50"
+                  value === c
+                    ? "border-primary ring-1 ring-primary"
+                    : "border-border/50"
                 }`}
                 style={{ backgroundColor: c }}
               />
